@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📂 Explorateur de Fichiers Glass</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Background animé -->
+  <div class="background-gradient"></div>
+
+  <!-- Container principal -->
+  <div class="container">
+    
+    <!-- HEADER -->
+    <header class="header glass-card">
+      <div class="header-content">
+        <h1 class="app-title">
+          <span class="icon">📂</span>
+          Explorateur de Fichiers Glass
+        </h1>
+        <button class="btn-settings" id="btnSettings" aria-label="Ouvrir les paramètres">
+          <span>⚙️</span>
+          <span class="btn-text">Paramètres</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- INDICATEUR TEMPS RÉEL -->
+    <div class="sync-indicator glass-card" id="syncIndicator">
+      <div class="sync-status">
+        <span class="status-icon pulse">🟢</span>
+        <span class="status-text">Synchronisé</span>
+      </div>
+      <div class="last-update">
+        Dernière mise à jour: <span id="lastUpdateTime">--:--:--</span>
+      </div>
+    </div>
+
+    <!-- NAVIGATION -->
+    <nav class="navigation glass-card">
+      <div class="current-path">
+        <span class="path-icon">📍</span>
+        <span class="path-label">Chemin actuel:</span>
+        <span class="path-value" id="currentPath">/</span>
+      </div>
+      <div class="nav-buttons">
+        <button class="btn-nav" id="btnParent" title="Dossier parent">
+          <span>⬆️</span>
+          <span>Parent</span>
+        </button>
+        <button class="btn-nav" id="btnHome" title="Retour à la racine">
+          <span>🏠</span>
+          <span>Racine</span>
+        </button>
+        <button class="btn-nav" id="btnRefresh" title="Actualiser">
+          <span>🔄</span>
+          <span>Actualiser</span>
+        </button>
+        <button class="btn-nav" id="btnOpenExternal" title="Ouvrir dans l'explorateur système">
+          <span>🗂️</span>
+          <span>Ouvrir</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- ZONE PRINCIPALE - ARBORESCENCE -->
+    <main class="main-content glass-card">
+      <div class="content-header">
+        <h2 class="section-title">Contenu du dossier</h2>
+        <div class="item-count" id="itemCount">0 éléments</div>
+      </div>
+      
+      <!-- Liste des fichiers/dossiers -->
+      <div class="file-list" id="fileList">
+        <!-- Loading spinner -->
+        <div class="loading" id="loadingSpinner">
+          <div class="spinner"></div>
+          <p>Chargement...</p>
+        </div>
+
+        <!-- Message si vide -->
+        <div class="empty-state" id="emptyState" style="display: none;">
+          <span class="empty-icon">📭</span>
+          <p>Ce dossier est vide</p>
+        </div>
+
+        <!-- Message d'erreur -->
+        <div class="error-state" id="errorState" style="display: none;">
+          <span class="error-icon">⚠️</span>
+          <p id="errorMessage">Une erreur est survenue</p>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <!-- MODAL PARAMÈTRES -->
+  <div class="modal-overlay" id="modalSettings">
+    <div class="modal glass-card">
+      <div class="modal-header">
+        <h2>
+          <span>⚙️</span>
+          Paramètres
+        </h2>
+        <button class="btn-close" id="btnCloseModal" aria-label="Fermer">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Chemin racine -->
+        <div class="form-group">
+          <label for="inputRootPath">Chemin racine</label>
+          <div class="input-with-button">
+            <input 
+              type="text" 
+              id="inputRootPath" 
+              class="form-input" 
+              placeholder="/home/user/documents"
+              spellcheck="false"
+            >
+            <button class="btn-browse" id="btnBrowse" title="Parcourir">
+              📁
+            </button>
+          </div>
+        </div>
+
+        <!-- Raccourcis rapides -->
+        <div class="form-group">
+          <label>Raccourcis rapides</label>
+          <div class="shortcuts" id="shortcuts">
+            <!-- Généré dynamiquement -->
+          </div>
+        </div>
+
+        <!-- Type de chemin -->
+        <div class="form-group">
+          <label>Type de chemin</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="pathType" value="local" checked>
+              <span class="radio-custom"></span>
+              <span>💻 Chemin local</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="pathType" value="remote">
+              <span class="radio-custom"></span>
+              <span>🌐 Chemin distant (À venir)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Options -->
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkAutoRefresh" checked>
+            <span class="checkbox-custom"></span>
+            <span>Synchronisation automatique en temps réel</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btnCancel">
+          ❌ Annuler
+        </button>
+        <button class="btn-primary" id="btnSave">
+          💾 Sauvegarder
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL NOTIFICATION -->
+  <div class="notification" id="notification">
+    <span class="notification-icon" id="notificationIcon">ℹ️</span>
+    <span class="notification-text" id="notificationText">Notification</span>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
+

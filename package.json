@@ -1,0 +1,47 @@
+{
+  "name": "file-explorer-glass",
+  "version": "1.0.0",
+  "description": "Explorateur de fichiers moderne avec style Glass et synchronisation temps réel",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build-win": "electron-builder --win",
+    "build-mac": "electron-builder --mac",
+    "build-linux": "electron-builder --linux"
+  },
+  "keywords": [
+    "electron",
+    "file-explorer",
+    "glassmorphism"
+  ],
+  "author": "Votre Nom",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3"
+  },
+  "build": {
+    "appId": "com.fileexplorer.glass",
+    "productName": "File Explorer Glass",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png"
+    }
+  }
+}
+
