@@ -54,7 +54,7 @@ body {
 }
 
 /* ================================================
-   BACKGROUND GRADIENT
+   BACKGROUND IMAGE
    ================================================ */
 
 .background-gradient {
@@ -64,16 +64,25 @@ body {
   width: 100%;
   height: 100%;
   z-index: -1;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
-  background-size: 400% 400%;
-  animation: gradientShift 15s ease infinite;
+  background-image: url('./assets/background.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
-@keyframes gradientShift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+/* Fallback gradient if image doesn't load */
+.background-gradient::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
+  z-index: -1;
 }
+
 
 /* ================================================
    GLASS CARD EFFECT
@@ -877,5 +886,153 @@ body {
   .file-details {
     font-size: 0.75rem;
   }
+}
+
+/* ================================================
+   CUSTOM TITLEBAR
+   ================================================ */
+
+.custom-titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  z-index: 9999;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--glass-border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.titlebar-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--spacing-sm);
+}
+
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.app-icon {
+  font-size: 1.2rem;
+}
+
+.app-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.titlebar-right {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+.titlebar-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.titlebar-btn.close-btn:hover {
+  background: #e81123;
+}
+
+/* Adjust container for titlebar */
+.container {
+  padding-top: calc(var(--spacing-md) + 40px);
+}
+/* ================================================
+   FILE ACTION BUTTONS
+   ================================================ */
+
+.file-actions {
+  display: flex;
+  gap: 0.3rem;
+  opacity: 0;
+  transition: var(--transition);
+}
+
+.file-item:hover .file-actions {
+  opacity: 1;
+}
+
+.action-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+.rename-btn:hover {
+  background: var(--warning);
+}
+
+.delete-btn:hover {
+  background: var(--danger);
+}
+
+/* Make file icons and names clickable */
+.clickable-file {
+  cursor: pointer;
+}
+
+.clickable-file:hover {
+  color: var(--primary);
+  transform: scale(1.05);
+}
+
+/* Update file item layout for actions */
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: default; /* Remove default cursor since we have specific clickable areas */
+  transition: var(--transition);
+  animation: fadeIn 0.3s ease;
+}
+
+.file-item:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--glass-border);
+  transform: translateX(3px);
 }
 

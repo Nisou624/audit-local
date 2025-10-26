@@ -4,10 +4,31 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const chokidar = require('chokidar');
 
+// Import the configuration manager
+const ConfigManager = require('./config-manager');
+const configManager = new ConfigManager();
+
 let mainWindow;
 let fileWatcher = null;
 
-// Créer la fenêtre principale
+// Helper function to generate file info
+async function generateFileInfo(itemPath) {
+  try {
+    const itemStats = await fs.stat(itemPath);
+    return {
+      name: path.basename(itemPath),
+      path: itemPath,
+      isDirectory: itemStats.isDirectory(),
+      size: itemStats.size,
+      modified: itemStats.mtime.toISOString(),
+      extension: path.extname(itemPath).toLowerCase().replace('.', '')
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+// Create the main window
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -20,15 +41,22 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false
     },
-    frame: true,
+    frame: false, // Hide default frame for custom titlebar
+    titleBarStyle: 'hidden',
     backgroundColor: '#1a1a2e',
-    titleBarStyle: 'default',
     icon: path.join(__dirname, 'assets/icon.png')
   });
 
   mainWindow.loadFile('index.html');
 
-  // Ouvrir DevTools en mode développement
+  // Load and send config to renderer
+  configManager.loadConfig().then(config => {
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.send('config-loaded', config);
+    });
+  });
+
+  // Open DevTools in development mode
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
   }
@@ -41,7 +69,7 @@ function createWindow() {
   });
 }
 
-// Lancer l'application
+// App initialization
 app.whenReady().then(() => {
   createWindow();
 
@@ -59,19 +87,64 @@ app.on('window-all-closed', () => {
 });
 
 // ============================================
-// IPC HANDLERS - Communication avec le renderer
+// WINDOW CONTROL HANDLERS
 // ============================================
 
-// Lire le contenu d'un dossier
+ipcMain.handle('window-minimize', () => {
+  mainWindow?.minimize();
+});
+
+ipcMain.handle('window-toggle-maximize', () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow?.maximize();
+  }
+});
+
+ipcMain.handle('window-close', () => {
+  mainWindow?.close();
+});
+
+// ============================================
+// CONFIGURATION HANDLERS
+// ============================================
+
+ipcMain.handle('load-config', async () => {
+  try {
+    return await configManager.loadConfig();
+  } catch (error) {
+    console.error('Error loading config:', error);
+    return {
+      explorer: { defaultPath: './sample-folder', autoRefresh: true },
+      app: { showConfigButton: true },
+      security: { requireAdminForModifications: false }
+    };
+  }
+});
+
+ipcMain.handle('save-config', async (event, config) => {
+  try {
+    return await configManager.saveConfig(config);
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ============================================
+// FILE SYSTEM HANDLERS
+// ============================================
+
+// Read directory contents
 ipcMain.handle('read-directory', async (event, dirPath) => {
   try {
-    // Vérifier si le chemin existe
+    // Check if path exists
     const stats = await fs.stat(dirPath);
     if (!stats.isDirectory()) {
       throw new Error('Le chemin spécifié n\'est pas un dossier');
     }
 
-    // Lire le contenu du dossier
+    // Read directory contents
     const items = await fs.readdir(dirPath);
     const itemsWithDetails = [];
 
@@ -89,12 +162,11 @@ ipcMain.handle('read-directory', async (event, dirPath) => {
           extension: path.extname(item).toLowerCase().replace('.', '')
         });
       } catch (err) {
-        // Ignorer les fichiers inaccessibles
         console.error(`Erreur lecture ${item}:`, err.message);
       }
     }
 
-    // Trier: dossiers d'abord, puis fichiers (alphabétique)
+    // Sort: directories first, then files (alphabetically)
     itemsWithDetails.sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1;
       if (!a.isDirectory && b.isDirectory) return 1;
@@ -114,7 +186,204 @@ ipcMain.handle('read-directory', async (event, dirPath) => {
   }
 });
 
-// Ouvrir un fichier avec l'application par défaut
+// Enhanced file watching with immediate updates
+ipcMain.handle('start-enhanced-watching', async (event, dirPath) => {
+  try {
+    // Stop previous watcher if it exists
+    if (fileWatcher) {
+      await fileWatcher.close();
+      fileWatcher = null;
+    }
+
+    fileWatcher = chokidar.watch(dirPath, {
+      persistent: true,
+      ignoreInitial: true,
+      depth: 0,
+      awaitWriteFinish: {
+        stabilityThreshold: 100,
+        pollInterval: 50
+      },
+      atomic: true,
+      usePolling: false,
+      interval: 500,
+      binaryInterval: 1000
+    });
+
+    // Immediate response events
+    fileWatcher
+      .on('add', async (filePath) => {
+        const result = await generateFileInfo(filePath);
+        if (result) {
+          mainWindow?.webContents.send('file-system-change', {
+            action: 'add',
+            item: result,
+            timestamp: Date.now()
+          });
+        }
+      })
+      .on('addDir', async (dirPath) => {
+        const result = await generateFileInfo(dirPath);
+        if (result) {
+          mainWindow?.webContents.send('file-system-change', {
+            action: 'add',
+            item: result,
+            timestamp: Date.now()
+          });
+        }
+      })
+      .on('unlink', (filePath) => {
+        mainWindow?.webContents.send('file-system-change', {
+          action: 'remove',
+          path: filePath,
+          name: path.basename(filePath),
+          timestamp: Date.now()
+        });
+      })
+      .on('unlinkDir', (dirPath) => {
+        mainWindow?.webContents.send('file-system-change', {
+          action: 'remove',
+          path: dirPath,
+          name: path.basename(dirPath),
+          timestamp: Date.now()
+        });
+      })
+      .on('change', async (filePath) => {
+        const result = await generateFileInfo(filePath);
+        if (result) {
+          mainWindow?.webContents.send('file-system-change', {
+            action: 'change',
+            item: result,
+            timestamp: Date.now()
+          });
+        }
+      })
+      .on('error', (error) => {
+        console.error('Erreur watcher:', error);
+      });
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Legacy file watching (keeping for compatibility)
+ipcMain.handle('start-watching', async (event, dirPath) => {
+  return ipcMain.handle('start-enhanced-watching')(event, dirPath);
+});
+
+// Stop file watching
+ipcMain.handle('stop-watching', async (event) => {
+  try {
+    if (fileWatcher) {
+      await fileWatcher.close();
+      fileWatcher = null;
+    }
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// ============================================
+// FILE OPERATIONS HANDLERS
+// ============================================
+
+// Create a new file
+ipcMain.handle('create-file', async (event, filePath, content = '', isAuthenticated = false) => {
+  try {
+    const config = await configManager.loadConfig();
+    
+    if (config.security.requireAdminForModifications && !isAuthenticated) {
+      return { success: false, error: 'Admin authentication required' };
+    }
+
+    await fs.writeFile(filePath, content);
+    return { success: true, message: 'File created successfully' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Create a new directory
+ipcMain.handle('create-directory', async (event, dirPath, isAuthenticated = false) => {
+  try {
+    const config = await configManager.loadConfig();
+    
+    if (config.security.requireAdminForModifications && !isAuthenticated) {
+      return { success: false, error: 'Admin authentication required' };
+    }
+
+    await fs.mkdir(dirPath, { recursive: true });
+    return { success: true, message: 'Directory created successfully' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Delete an item (file or directory)
+ipcMain.handle('delete-item', async (event, itemPath, isAuthenticated = false) => {
+  try {
+    const config = await configManager.loadConfig();
+    
+    if (config.security.requireAdminForModifications && !isAuthenticated) {
+      return { success: false, error: 'Admin authentication required' };
+    }
+
+    const stats = await fs.stat(itemPath);
+    if (stats.isDirectory()) {
+      await fs.rmdir(itemPath, { recursive: true });
+    } else {
+      await fs.unlink(itemPath);
+    }
+    
+    return { success: true, message: 'Item deleted successfully' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Rename an item
+ipcMain.handle('rename-item', async (event, oldPath, newPath, isAuthenticated = false) => {
+  try {
+    const config = await configManager.loadConfig();
+    
+    if (config.security.requireAdminForModifications && !isAuthenticated) {
+      return { success: false, error: 'Admin authentication required' };
+    }
+
+    await fs.rename(oldPath, newPath);
+    return { success: true, message: 'Item renamed successfully' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ============================================
+// AUTHENTICATION HANDLERS
+// ============================================
+
+// Admin authentication
+ipcMain.handle('authenticate-admin', async (event, password) => {
+  try {
+    const config = await configManager.loadConfig();
+    return {
+      success: password === config.security.adminPassword,
+      message: password === config.security.adminPassword ? 'Authenticated' : 'Invalid password'
+    };
+  } catch (error) {
+    return { success: false, message: 'Authentication error' };
+  }
+});
+
+// ============================================
+// EXISTING HANDLERS (keeping for compatibility)
+// ============================================
+
+// Open file with default application
 ipcMain.handle('open-file', async (event, filePath) => {
   try {
     await shell.openPath(filePath);
@@ -127,7 +396,7 @@ ipcMain.handle('open-file', async (event, filePath) => {
   }
 });
 
-// Ouvrir un dossier dans l'explorateur système
+// Open folder in system explorer
 ipcMain.handle('open-folder-external', async (event, folderPath) => {
   try {
     await shell.openPath(folderPath);
@@ -140,7 +409,7 @@ ipcMain.handle('open-folder-external', async (event, folderPath) => {
   }
 });
 
-// Dialogue pour sélectionner un dossier
+// Directory selection dialog
 ipcMain.handle('select-directory', async (event) => {
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -164,7 +433,7 @@ ipcMain.handle('select-directory', async (event) => {
   }
 });
 
-// Vérifier si un chemin existe et est accessible
+// Verify path exists
 ipcMain.handle('verify-path', async (event, dirPath) => {
   try {
     const stats = await fs.stat(dirPath);
@@ -182,92 +451,7 @@ ipcMain.handle('verify-path', async (event, dirPath) => {
   }
 });
 
-// Démarrer la surveillance d'un dossier
-ipcMain.handle('start-watching', async (event, dirPath) => {
-  try {
-    // Arrêter la surveillance précédente si elle existe
-    if (fileWatcher) {
-      await fileWatcher.close();
-      fileWatcher = null;
-    }
-
-    // Créer un nouveau watcher avec chokidar
-    fileWatcher = chokidar.watch(dirPath, {
-      persistent: true,
-      ignoreInitial: true,
-      depth: 0, // Surveiller uniquement le dossier actuel (pas récursif)
-      awaitWriteFinish: {
-        stabilityThreshold: 300,
-        pollInterval: 100
-      }
-    });
-
-    // Événements de changement
-    fileWatcher
-      .on('add', (filePath) => {
-        mainWindow?.webContents.send('file-added', {
-          path: filePath,
-          name: path.basename(filePath),
-          type: 'file'
-        });
-      })
-      .on('addDir', (dirPath) => {
-        mainWindow?.webContents.send('file-added', {
-          path: dirPath,
-          name: path.basename(dirPath),
-          type: 'directory'
-        });
-      })
-      .on('unlink', (filePath) => {
-        mainWindow?.webContents.send('file-removed', {
-          path: filePath,
-          name: path.basename(filePath),
-          type: 'file'
-        });
-      })
-      .on('unlinkDir', (dirPath) => {
-        mainWindow?.webContents.send('file-removed', {
-          path: dirPath,
-          name: path.basename(dirPath),
-          type: 'directory'
-        });
-      })
-      .on('change', (filePath) => {
-        mainWindow?.webContents.send('file-changed', {
-          path: filePath,
-          name: path.basename(filePath)
-        });
-      })
-      .on('error', (error) => {
-        console.error('Erreur watcher:', error);
-      });
-
-    return { success: true };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-});
-
-// Arrêter la surveillance
-ipcMain.handle('stop-watching', async (event) => {
-  try {
-    if (fileWatcher) {
-      await fileWatcher.close();
-      fileWatcher = null;
-    }
-    return { success: true };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-});
-
-// Obtenir le répertoire home de l'utilisateur
+// Get user home directory
 ipcMain.handle('get-home-directory', async (event) => {
   try {
     const homeDir = app.getPath('home');
@@ -283,7 +467,7 @@ ipcMain.handle('get-home-directory', async (event) => {
   }
 });
 
-// Obtenir des dossiers système communs
+// Get common system directories
 ipcMain.handle('get-common-directories', async (event) => {
   try {
     return {

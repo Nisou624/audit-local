@@ -1,52 +1,46 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Exposer les APIs de manière sécurisée au renderer
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Lire le contenu d'un dossier
-  readDirectory: (dirPath) => ipcRenderer.invoke('read-directory', dirPath),
-  
-  // Ouvrir un fichier
-  openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
-  
-  // Ouvrir un dossier dans l'explorateur système
-  openFolderExternal: (folderPath) => ipcRenderer.invoke('open-folder-external', folderPath),
-  
-  // Sélectionner un dossier via dialogue
+  // File system operations
+  readDirectory: (path) => ipcRenderer.invoke('read-directory', path),
+  openFile: (path) => ipcRenderer.invoke('open-file', path),
+  openFolderExternal: (path) => ipcRenderer.invoke('open-folder-external', path),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  verifyPath: (path) => ipcRenderer.invoke('verify-path', path),
   
-  // Vérifier un chemin
-  verifyPath: (dirPath) => ipcRenderer.invoke('verify-path', dirPath),
-  
-  // Démarrer la surveillance
-  startWatching: (dirPath) => ipcRenderer.invoke('start-watching', dirPath),
-  
-  // Arrêter la surveillance
+  // File watching
+  startWatching: (path) => ipcRenderer.invoke('start-watching', path),
+  startEnhancedWatching: (path) => ipcRenderer.invoke('start-enhanced-watching', path),
   stopWatching: () => ipcRenderer.invoke('stop-watching'),
   
-  // Obtenir le répertoire home
+  // System directories
   getHomeDirectory: () => ipcRenderer.invoke('get-home-directory'),
-  
-  // Obtenir les dossiers communs
   getCommonDirectories: () => ipcRenderer.invoke('get-common-directories'),
-  
-  // Événements de surveillance (listeners)
-  onFileAdded: (callback) => {
-    ipcRenderer.on('file-added', (event, data) => callback(data));
+
+  // Configuration
+  loadConfig: () => ipcRenderer.invoke('load-config'),
+  saveConfig: (config) => ipcRenderer.invoke('save-config', config),
+
+  // File operations
+  createFile: (path, content, auth) => ipcRenderer.invoke('create-file', path, content, auth),
+  createDirectory: (path, auth) => ipcRenderer.invoke('create-directory', path, auth),
+  deleteItem: (path, auth) => ipcRenderer.invoke('delete-item', path, auth),
+  renameItem: (oldPath, newPath, auth) => ipcRenderer.invoke('rename-item', oldPath, newPath, auth),
+
+  // Authentication
+  authenticateAdmin: (password) => ipcRenderer.invoke('authenticate-admin', password),
+
+  // Window controls
+  windowMinimize: () => ipcRenderer.invoke('window-minimize'),
+  windowToggleMaximize: () => ipcRenderer.invoke('window-toggle-maximize'),
+  windowClose: () => ipcRenderer.invoke('window-close'),
+
+  // Event listeners
+  onFileSystemChange: (callback) => {
+    ipcRenderer.on('file-system-change', (event, data) => callback(data));
   },
-  
-  onFileRemoved: (callback) => {
-    ipcRenderer.on('file-removed', (event, data) => callback(data));
-  },
-  
-  onFileChanged: (callback) => {
-    ipcRenderer.on('file-changed', (event) => callback(data));
-  },
-  
-  // Retirer les listeners
-  removeFileListeners: () => {
-    ipcRenderer.removeAllListeners('file-added');
-    ipcRenderer.removeAllListeners('file-removed');
-    ipcRenderer.removeAllListeners('file-changed');
+  onConfigLoaded: (callback) => {
+    ipcRenderer.on('config-loaded', (event, config) => callback(config));
   }
 });
 

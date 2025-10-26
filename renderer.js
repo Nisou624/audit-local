@@ -1,651 +1,629 @@
-// ================================================
-// ÉTAT DE L'APPLICATION
-// ================================================
-
-let appState = {
-  currentPath: '',
-  rootPath: '',
-  pathHistory: [],
-  files: [],
-  isWatching: false,
-  lastUpdate: null
-};
-
-// ================================================
-// ÉLÉMENTS DOM
-// ================================================
-
-const elements = {
-  // Navigation
-  currentPath: document.getElementById('currentPath'),
-  btnParent: document.getElementById('btnParent'),
-  btnHome: document.getElementById('btnHome'),
-  btnRefresh: document.getElementById('btnRefresh'),
-  btnOpenExternal: document.getElementById('btnOpenExternal'),
-  
-  // Contenu
-  fileList: document.getElementById('fileList'),
-  itemCount: document.getElementById('itemCount'),
-  loadingSpinner: document.getElementById('loadingSpinner'),
-  emptyState: document.getElementById('emptyState'),
-  errorState: document.getElementById('errorState'),
-  errorMessage: document.getElementById('errorMessage'),
-  
-  // Sync indicator
-  syncIndicator: document.getElementById('syncIndicator'),
-  lastUpdateTime: document.getElementById('lastUpdateTime'),
-  
-  // Modal paramètres
-  btnSettings: document.getElementById('btnSettings'),
-  modalSettings: document.getElementById('modalSettings'),
-  btnCloseModal: document.getElementById('btnCloseModal'),
-  btnCancel: document.getElementById('btnCancel'),
-  btnSave: document.getElementById('btnSave'),
-  inputRootPath: document.getElementById('inputRootPath'),
-  btnBrowse: document.getElementById('btnBrowse'),
-  shortcuts: document.getElementById('shortcuts'),
-  checkAutoRefresh: document.getElementById('checkAutoRefresh'),
-  
-  // Notification
-  notification: document.getElementById('notification'),
-  notificationIcon: document.getElementById('notificationIcon'),
-  notificationText: document.getElementById('notificationText')
-};
-
-// ================================================
-// INITIALISATION
-// ================================================
-
-async function init() {
-  console.log('🚀 Initialisation de l\'application...');
-  
-  // Charger la configuration sauvegardée
-  loadConfig();
-  
-  // Obtenir les dossiers communs pour les raccourcis
-  await loadShortcuts();
-  
-  // Définir le chemin initial
-  if (!appState.rootPath) {
-    const result = await window.electronAPI.getHomeDirectory();
-    if (result.success) {
-      appState.rootPath = result.path;
-      appState.currentPath = result.path;
+// FileIcons utility class
+class FileIcons {
+  static getIcon(item) {
+    if (item.isDirectory) {
+      return '📁';
     }
-  }
-  
-  // Charger le contenu initial
-  await loadDirectory(appState.currentPath);
-  
-  // Démarrer la surveillance si activée
-  if (appState.isWatching) {
-    await startWatching();
-  }
-  
-  // Attacher les event listeners
-  attachEventListeners();
-  
-  // Mettre à jour le timestamp
-  updateTimestamp();
-  
-  showNotification('✅', 'Application prête!');
-  console.log('✅ Application initialisée');
-}
 
-// ================================================
-// CONFIGURATION
-// ================================================
-
-function loadConfig() {
-  const config = localStorage.getItem('fileExplorerConfig');
-  if (config) {
-    try {
-      const parsed = JSON.parse(config);
-      appState.rootPath = parsed.rootPath || '';
-      appState.currentPath = parsed.rootPath || '';
-      appState.isWatching = parsed.autoRefresh !== false;
-      
-      elements.inputRootPath.value = appState.rootPath;
-      elements.checkAutoRefresh.checked = appState.isWatching;
-    } catch (err) {
-      console.error('Erreur chargement config:', err);
-    }
-  }
-}
-
-function saveConfig() {
-  const config = {
-    rootPath: appState.rootPath,
-    autoRefresh: appState.isWatching
-  };
-  localStorage.setItem('fileExplorerConfig', JSON.stringify(config));
-}
-
-// ================================================
-// CHARGEMENT DES RACCOURCIS
-// ================================================
-
-async function loadShortcuts() {
-  const result = await window.electronAPI.getCommonDirectories();
-  if (result.success) {
-    const dirs = result.directories;
-    const shortcuts = [
-      { icon: '🏠', label: 'Accueil', path: dirs.home },
-      { icon: '📄', label: 'Documents', path: dirs.documents },
-      { icon: '⬇️', label: 'Téléchargements', path: dirs.downloads },
-      { icon: '🖥️', label: 'Bureau', path: dirs.desktop },
-      { icon: '🖼️', label: 'Images', path: dirs.pictures },
-      { icon: '🎵', label: 'Musique', path: dirs.music },
-      { icon: '🎬', label: 'Vidéos', path: dirs.videos }
-    ];
+    const extension = item.extension.toLowerCase();
     
-    elements.shortcuts.innerHTML = '';
-    shortcuts.forEach(shortcut => {
-      const btn = document.createElement('button');
-      btn.className = 'shortcut-btn';
-      btn.innerHTML = `<span>${shortcut.icon}</span><span>${shortcut.label}</span>`;
-      btn.onclick = () => {
-        elements.inputRootPath.value = shortcut.path;
+    switch (extension) {
+      case 'txt':
+      case 'md':
+      case 'readme':
+        return '📄';
+      
+      case 'doc':
+      case 'docx':
+        return '📝';
+      
+      case 'xls':
+      case 'xlsx':
+      case 'csv':
+        return '📊';
+      
+      case 'pdf':
+        return '📕';
+      
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+      case 'bmp':
+      case 'svg':
+        return '🖼️';
+      
+      case 'mp4':
+      case 'avi':
+      case 'mov':
+      case 'mkv':
+        return '🎬';
+      
+      case 'mp3':
+      case 'wav':
+      case 'flac':
+        return '🎵';
+      
+      case 'zip':
+      case 'rar':
+      case '7z':
+      case 'tar':
+        return '📦';
+      
+      case 'js':
+      case 'html':
+      case 'css':
+      case 'json':
+      case 'xml':
+        return '💻';
+      
+      default:
+        return '📄';
+    }
+  }
+}
+
+class FileExplorerApp {
+  constructor() {
+    this.currentPath = '';
+    this.rootPath = '';
+    this.config = null;
+    this.isAuthenticated = false;
+    this.fileList = [];
+    this.init();
+  }
+
+  async init() {
+    await this.loadConfiguration();
+    this.bindEvents();
+    this.setupKeyboardShortcuts();
+    this.initializeExplorer();
+  }
+
+  async loadConfiguration() {
+    try {
+      this.config = await window.electronAPI.loadConfig();
+      this.rootPath = this.config.explorer.defaultPath;
+      this.applyConfiguration();
+    } catch (error) {
+      console.error('Failed to load configuration:', error);
+      // Use defaults if config fails
+      this.config = {
+        explorer: { defaultPath: './sample-folder', autoRefresh: true },
+        app: { showConfigButton: true },
+        security: { requireAdminForModifications: false }
       };
-      elements.shortcuts.appendChild(btn);
+      this.rootPath = this.config.explorer.defaultPath;
+    }
+  }
+
+  applyConfiguration() {
+    // Hide config button if configured
+    if (!this.config.app.showConfigButton) {
+      document.getElementById('btnSettings').style.display = 'none';
+    }
+
+    // Apply background image
+    if (this.config.ui?.backgroundImage) {
+      const bgElement = document.querySelector('.background-gradient');
+      bgElement.style.backgroundImage = `url('${this.config.ui.backgroundImage}')`;
+    }
+  }
+
+  bindEvents() {
+    // Settings modal events
+    document.getElementById('btnSettings').addEventListener('click', () => this.showSettings());
+    document.getElementById('btnCloseModal').addEventListener('click', () => this.hideSettings());
+    document.getElementById('btnCancel').addEventListener('click', () => this.hideSettings());
+    document.getElementById('btnSave').addEventListener('click', () => this.saveSettings());
+    
+    // Navigation events
+    document.getElementById('btnRefresh').addEventListener('click', () => this.refreshDirectory());
+    document.getElementById('btnParent').addEventListener('click', () => this.goToParent());
+    document.getElementById('btnHome').addEventListener('click', () => this.goToRoot());
+    document.getElementById('btnBrowse').addEventListener('click', () => this.browseDirectory());
+    document.getElementById('btnOpenExternal').addEventListener('click', () => this.openInSystemExplorer());
+
+    // Add file operation buttons to navigation
+    this.addFileOperationButtons();
+
+    // Listen for real-time file system changes
+    window.electronAPI.onFileSystemChange((data) => {
+      this.handleFileSystemChange(data);
+    });
+
+    // Config loaded event
+    window.electronAPI.onConfigLoaded((config) => {
+      this.config = config;
+      this.rootPath = config.explorer.defaultPath;
+      this.applyConfiguration();
+    });
+
+    // Modal overlay click to close
+    document.getElementById('modalSettings').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        this.hideSettings();
+      }
     });
   }
-}
 
-// ================================================
-// CHARGEMENT DU DOSSIER
-// ================================================
-
-async function loadDirectory(dirPath) {
-  console.log('📂 Chargement du dossier:', dirPath);
-  
-  // Afficher le spinner
-  showLoading();
-  
-  try {
-    // Lire le contenu du dossier
-    const result = await window.electronAPI.readDirectory(dirPath);
+  addFileOperationButtons() {
+    const navButtons = document.querySelector('.nav-buttons');
     
-    if (!result.success) {
-      showError(result.error);
+    // Check if buttons already exist
+    if (document.getElementById('btnNewFile')) {
       return;
     }
     
-    // Mettre à jour l'état
-    appState.currentPath = result.path;
-    appState.files = result.items;
+    // Add file/folder creation buttons
+    const createFileBtn = document.createElement('button');
+    createFileBtn.className = 'btn-nav';
+    createFileBtn.id = 'btnNewFile';
+    createFileBtn.innerHTML = '<span>📄</span><span>Nouveau fichier</span>';
+    createFileBtn.title = 'Créer un nouveau fichier';
+    createFileBtn.addEventListener('click', () => this.createNewFile());
+
+    const createFolderBtn = document.createElement('button');
+    createFolderBtn.className = 'btn-nav';
+    createFolderBtn.id = 'btnNewFolder';
+    createFolderBtn.innerHTML = '<span>📁</span><span>Nouveau dossier</span>';
+    createFolderBtn.title = 'Créer un nouveau dossier';
+    createFolderBtn.addEventListener('click', () => this.createNewFolder());
+
+    navButtons.appendChild(createFileBtn);
+    navButtons.appendChild(createFolderBtn);
+  }
+
+  setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+      // Config shortcut (Ctrl+Comma by default)
+      if (e.ctrlKey && e.key === ',') {
+        e.preventDefault();
+        this.showSettings();
+      }
+      
+      // Refresh (F5)
+      if (e.key === 'F5') {
+        e.preventDefault();
+        this.refreshDirectory();
+      }
+      
+      // Parent directory (Alt+Up)
+      if (e.altKey && e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.goToParent();
+      }
+    });
+  }
+
+  async initializeExplorer() {
+    const defaultPath = this.config.explorer.defaultPath || './sample-folder';
+    await this.navigateToDirectory(defaultPath);
+  }
+
+  async navigateToDirectory(path) {
+    try {
+      this.showLoading();
+      
+      const result = await window.electronAPI.readDirectory(path);
+      
+      if (result.success) {
+        this.currentPath = result.path;
+        this.fileList = result.items;
+        this.updateUI();
+        
+        // Start enhanced file watching if auto-refresh is enabled
+        if (this.config.explorer.autoRefresh) {
+          await window.electronAPI.startEnhancedWatching(path);
+        }
+      } else {
+        this.showError(result.error);
+      }
+    } catch (error) {
+      this.showError('Erreur lors de la navigation: ' + error.message);
+    }
+  }
+
+  handleFileSystemChange(data) {
+    const { action, item, path: itemPath, timestamp } = data;
     
-    // Afficher le contenu
-    displayFiles(result.items);
-    
-    // Mettre à jour l'interface
-    updateUI();
-    
-    // Redémarrer la surveillance sur le nouveau dossier
-    if (appState.isWatching) {
-      await restartWatching();
+    switch (action) {
+      case 'add':
+        if (item) {
+          // Check if item already exists to avoid duplicates
+          const exists = this.fileList.find(f => f.path === item.path);
+          if (!exists) {
+            this.fileList.push(item);
+            this.updateFileList();
+            this.showNotification(`✅ ${item.isDirectory ? 'Dossier' : 'Fichier'} ajouté: ${item.name}`, 'success');
+          }
+        }
+        break;
+        
+      case 'remove':
+        this.fileList = this.fileList.filter(f => f.path !== itemPath);
+        this.updateFileList();
+        this.showNotification(`🗑️ Élément supprimé: ${this.getBasename(itemPath)}`, 'warning');
+        break;
+        
+      case 'change':
+        if (item) {
+          const index = this.fileList.findIndex(f => f.path === item.path);
+          if (index !== -1) {
+            this.fileList[index] = item;
+            this.updateFileList();
+            this.showNotification(`📝 Fichier modifié: ${item.name}`, 'info');
+          }
+        }
+        break;
     }
     
-    updateTimestamp();
+    // Update sync indicator
+    this.updateSyncIndicator();
+  }
+
+  updateUI() {
+    this.updateCurrentPath();
+    this.updateFileList();
+    this.updateNavigationButtons();
+    this.updateSyncIndicator();
+    this.hideLoading();
+  }
+
+  updateCurrentPath() {
+    document.getElementById('currentPath').textContent = this.currentPath;
+  }
+
+  updateFileList() {
+    const fileListElement = document.getElementById('fileList');
+    const itemCount = document.getElementById('itemCount');
     
-  } catch (error) {
-    console.error('Erreur chargement:', error);
-    showError('Impossible de charger le dossier');
+    // Sort files: directories first, then by name
+    const sortedFiles = [...this.fileList].sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    if (sortedFiles.length === 0) {
+      fileListElement.innerHTML = `
+        <div class="empty-state">
+          <span class="empty-icon">📭</span>
+          <p>Ce dossier est vide</p>
+        </div>
+      `;
+    } else {
+      fileListElement.innerHTML = sortedFiles.map(item => 
+        this.createFileItemHTML(item)
+      ).join('');
+    }
+
+    itemCount.textContent = `${sortedFiles.length} élément${sortedFiles.length !== 1 ? 's' : ''}`;
+
+    // Bind click events to file items
+    this.bindFileItemEvents();
   }
-}
 
-// ================================================
-// AFFICHAGE DES FICHIERS
-// ================================================
-
-function displayFiles(items) {
-  hideLoading();
-  
-  if (items.length === 0) {
-    elements.emptyState.style.display = 'flex';
-    elements.fileList.innerHTML = '';
-    elements.fileList.appendChild(elements.emptyState);
-    return;
-  }
-  
-  elements.emptyState.style.display = 'none';
-  elements.fileList.innerHTML = '';
-  
-  items.forEach((item, index) => {
-    const fileItem = createFileItem(item, index);
-    elements.fileList.appendChild(fileItem);
-  });
-}
-
-function createFileItem(item, index) {
-  const div = document.createElement('div');
-  div.className = 'file-item';
-  div.style.animationDelay = `${index * 0.03}s`;
-  
-  // Icône
-  const icon = getFileIcon(item);
-  
-  // Taille formatée
-  const size = item.isDirectory ? '--' : formatFileSize(item.size);
-  
-  // Date formatée
-  const date = formatDate(item.modified);
-  
-  div.innerHTML = `
-    <div class="file-icon">${icon}</div>
-    <div class="file-info">
-      <div class="file-name">${escapeHtml(item.name)}</div>
-      <div class="file-details">
-        <span class="file-size">📊 ${size}</span>
-        <span class="file-date">📅 ${date}</span>
+  createFileItemHTML(item) {
+    const icon = FileIcons.getIcon(item);
+    const size = item.isDirectory ? '' : this.formatFileSize(item.size);
+    const date = new Date(item.modified).toLocaleDateString('fr-FR');
+    
+    return `
+      <div class="file-item" data-path="${item.path}" data-is-directory="${item.isDirectory}">
+        <div class="file-icon clickable-file">${icon}</div>
+        <div class="file-info">
+          <div class="file-name clickable-file">${item.name}</div>
+          <div class="file-details">
+            ${size ? `<div class="file-size">📏 ${size}</div>` : ''}
+            <div class="file-date">📅 ${date}</div>
+          </div>
+        </div>
+        <div class="file-actions">
+          <button class="action-btn rename-btn" data-path="${item.path}" title="Renommer">
+            ✏️
+          </button>
+          <button class="action-btn delete-btn" data-path="${item.path}" title="Supprimer">
+            🗑️
+          </button>
+        </div>
       </div>
-    </div>
-  `;
-  
-  // Event click
-  div.onclick = () => handleFileClick(item);
-  
-  return div;
-}
-
-// ================================================
-// GESTION DES CLICS
-// ================================================
-
-async function handleFileClick(item) {
-  if (item.isDirectory) {
-    // Naviguer dans le dossier
-    await loadDirectory(item.path);
-  } else {
-    // Ouvrir le fichier
-    showNotification('📂', `Ouverture de ${item.name}...`);
-    const result = await window.electronAPI.openFile(item.path);
-    if (!result.success) {
-      showNotification('❌', `Erreur: ${result.error}`, 'error');
-    }
+    `;
   }
-}
 
-// ================================================
-// NAVIGATION
-// ================================================
-
-async function goToParent() {
-  const pathParts = appState.currentPath.split(/[/\\]/).filter(p => p);
-  if (pathParts.length > 1) {
-    pathParts.pop();
-    const parentPath = pathParts.join('/');
-    await loadDirectory('/' + parentPath);
-  } else {
-    showNotification('ℹ️', 'Déjà à la racine');
-  }
-}
-
-async function goToRoot() {
-  if (appState.rootPath) {
-    await loadDirectory(appState.rootPath);
-  }
-}
-
-async function refresh() {
-  await loadDirectory(appState.currentPath);
-  showNotification('🔄', 'Contenu actualisé');
-}
-
-async function openInExternalExplorer() {
-  const result = await window.electronAPI.openFolderExternal(appState.currentPath);
-  if (result.success) {
-    showNotification('✅', 'Dossier ouvert dans l\'explorateur');
-  } else {
-    showNotification('❌', 'Erreur lors de l\'ouverture', 'error');
-  }
-}
-
-// ================================================
-// SURVEILLANCE TEMPS RÉEL
-// ================================================
-
-async function startWatching() {
-  if (!appState.currentPath) return;
-  
-  console.log('👁️ Démarrage surveillance:', appState.currentPath);
-  
-  const result = await window.electronAPI.startWatching(appState.currentPath);
-  if (result.success) {
-    appState.isWatching = true;
-    
-    // Attacher les listeners d'événements
-    window.electronAPI.onFileAdded((data) => {
-      console.log('✅ Fichier ajouté:', data.name);
-      showNotification('➕', `Ajouté: ${data.name}`);
-      refresh();
+  bindFileItemEvents() {
+    // Navigation clicks
+    document.querySelectorAll('.clickable-file').forEach(element => {
+      element.addEventListener('click', (e) => {
+        const fileItem = e.target.closest('.file-item');
+        const path = fileItem.dataset.path;
+        const isDirectory = fileItem.dataset.isDirectory === 'true';
+        
+        if (isDirectory) {
+          this.navigateToDirectory(path);
+        } else {
+          window.electronAPI.openFile(path);
+        }
+      });
     });
-    
-    window.electronAPI.onFileRemoved((data) => {
-      console.log('❌ Fichier supprimé:', data.name);
-      showNotification('➖', `Supprimé: ${data.name}`);
-      refresh();
+
+    // Action buttons
+    document.querySelectorAll('.rename-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.renameItem(btn.dataset.path);
+      });
     });
-    
-    window.electronAPI.onFileChanged((data) => {
-      console.log('🔄 Fichier modifié:', data.name);
-      showNotification('✏️', `Modifié: ${data.name}`);
-      refresh();
+
+    document.querySelectorAll('.delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.deleteItem(btn.dataset.path);
+      });
     });
   }
-}
 
-async function stopWatching() {
-  console.log('🛑 Arrêt surveillance');
-  await window.electronAPI.stopWatching();
-  window.electronAPI.removeFileListeners();
-  appState.isWatching = false;
-}
-
-async function restartWatching() {
-  await stopWatching();
-  await startWatching();
-}
-
-// ================================================
-// MODAL PARAMÈTRES
-// ================================================
-
-function openSettings() {
-  elements.modalSettings.classList.add('active');
-  elements.inputRootPath.value = appState.rootPath;
-  elements.checkAutoRefresh.checked = appState.isWatching;
-}
-
-function closeSettings() {
-  elements.modalSettings.classList.remove('active');
-}
-
-async function saveSettings() {
-  const newRootPath = elements.inputRootPath.value.trim();
-  const autoRefresh = elements.checkAutoRefresh.checked;
-  
-  if (!newRootPath) {
-    showNotification('⚠️', 'Veuillez entrer un chemin valide', 'warning');
-    return;
-  }
-  
-  // Vérifier si le chemin existe
-  const verifyResult = await window.electronAPI.verifyPath(newRootPath);
-  if (!verifyResult.success || !verifyResult.exists) {
-    showNotification('❌', 'Ce chemin n\'existe pas', 'error');
-    return;
-  }
-  
-  if (!verifyResult.isDirectory) {
-    showNotification('❌', 'Ce chemin n\'est pas un dossier', 'error');
-    return;
-  }
-  
-  // Sauvegarder la config
-  appState.rootPath = newRootPath;
-  appState.isWatching = autoRefresh;
-  saveConfig();
-  
-  // Charger le nouveau dossier
-  await loadDirectory(newRootPath);
-  
-  // Gérer la surveillance
-  if (autoRefresh) {
-    await startWatching();
-  } else {
-    await stopWatching();
-  }
-  
-  closeSettings();
-  showNotification('✅', 'Paramètres sauvegardés');
-}
-
-async function browseForDirectory() {
-  const result = await window.electronAPI.selectDirectory();
-  if (result.success && !result.canceled) {
-    elements.inputRootPath.value = result.path;
-  }
-}
-
-// ================================================
-// INTERFACE UTILISATEUR
-// ================================================
-
-function updateUI() {
-  // Mettre à jour le chemin affiché
-  elements.currentPath.textContent = appState.currentPath;
-  
-  // Mettre à jour le compteur
-  const count = appState.files.length;
-  elements.itemCount.textContent = count === 0 ? 'Aucun élément' :
-    count === 1 ? '1 élément' : `${count} éléments`;
-  
-  // Activer/désactiver le bouton Parent
-  const isRoot = appState.currentPath === appState.rootPath || 
-                  appState.currentPath.split(/[/\\]/).filter(p => p).length <= 1;
-  elements.btnParent.disabled = isRoot;
-}
-
-function showLoading() {
-  elements.loadingSpinner.style.display = 'flex';
-  elements.emptyState.style.display = 'none';
-  elements.errorState.style.display = 'none';
-}
-
-function hideLoading() {
-  elements.loadingSpinner.style.display = 'none';
-}
-
-function showError(message) {
-  hideLoading();
-  elements.errorState.style.display = 'flex';
-  elements.errorMessage.textContent = message;
-  elements.fileList.innerHTML = '';
-  elements.fileList.appendChild(elements.errorState);
-}
-
-function updateTimestamp() {
-  const now = new Date();
-  const timeStr = now.toLocaleTimeString('fr-FR');
-  elements.lastUpdateTime.textContent = timeStr;
-  appState.lastUpdate = now;
-}
-
-// ================================================
-// NOTIFICATIONS
-// ================================================
-
-function showNotification(icon, text, type = 'info') {
-  elements.notificationIcon.textContent = icon;
-  elements.notificationText.textContent = text;
-  elements.notification.classList.add('show');
-  
-  // Cacher après 3 secondes
-  setTimeout(() => {
-    elements.notification.classList.remove('show');
-  }, 3000);
-}
-
-// ================================================
-// EVENT LISTENERS
-// ================================================
-
-function attachEventListeners() {
-  // Navigation
-  elements.btnParent.onclick = goToParent;
-  elements.btnHome.onclick = goToRoot;
-  elements.btnRefresh.onclick = refresh;
-  elements.btnOpenExternal.onclick = openInExternalExplorer;
-  
-  // Paramètres
-  elements.btnSettings.onclick = openSettings;
-  elements.btnCloseModal.onclick = closeSettings;
-  elements.btnCancel.onclick = closeSettings;
-  elements.btnSave.onclick = saveSettings;
-  elements.btnBrowse.onclick = browseForDirectory;
-  
-  // Fermer modal au clic sur overlay
-  elements.modalSettings.onclick = (e) => {
-    if (e.target === elements.modalSettings) {
-      closeSettings();
+  async createNewFile() {
+    if (await this.checkAdminAuth()) {
+      const fileName = prompt('Nom du nouveau fichier:');
+      if (fileName && fileName.trim()) {
+        const filePath = this.joinPath(this.currentPath, fileName.trim());
+        const result = await window.electronAPI.createFile(filePath, '', this.isAuthenticated);
+        
+        if (result.success) {
+          this.showNotification('📄 Fichier créé avec succès', 'success');
+        } else {
+          this.showNotification('❌ ' + result.error, 'error');
+        }
+      }
     }
-  };
-  
-  // Fermer modal avec Escape
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && elements.modalSettings.classList.contains('active')) {
-      closeSettings();
+  }
+
+  async createNewFolder() {
+    if (await this.checkAdminAuth()) {
+      const folderName = prompt('Nom du nouveau dossier:');
+      if (folderName && folderName.trim()) {
+        const folderPath = this.joinPath(this.currentPath, folderName.trim());
+        const result = await window.electronAPI.createDirectory(folderPath, this.isAuthenticated);
+        
+        if (result.success) {
+          this.showNotification('📁 Dossier créé avec succès', 'success');
+        } else {
+          this.showNotification('❌ ' + result.error, 'error');
+        }
+      }
     }
-  });
+  }
+
+  async deleteItem(itemPath) {
+    if (await this.checkAdminAuth()) {
+      const itemName = this.getBasename(itemPath);
+      if (confirm(`Êtes-vous sûr de vouloir supprimer "${itemName}" ?`)) {
+        const result = await window.electronAPI.deleteItem(itemPath, this.isAuthenticated);
+        
+        if (result.success) {
+          this.showNotification('🗑️ Élément supprimé avec succès', 'success');
+        } else {
+          this.showNotification('❌ ' + result.error, 'error');
+        }
+      }
+    }
+  }
+
+  async renameItem(itemPath) {
+    if (await this.checkAdminAuth()) {
+      const currentName = this.getBasename(itemPath);
+      const newName = prompt('Nouveau nom:', currentName);
+      
+      if (newName && newName.trim() && newName !== currentName) {
+        const newPath = this.joinPath(this.getDirname(itemPath), newName.trim());
+        const result = await window.electronAPI.renameItem(itemPath, newPath, this.isAuthenticated);
+        
+        if (result.success) {
+          this.showNotification('✏️ Élément renommé avec succès', 'success');
+        } else {
+          this.showNotification('❌ ' + result.error, 'error');
+        }
+      }
+    }
+  }
+
+  async checkAdminAuth() {
+    if (!this.config.security.requireAdminForModifications) {
+      return true;
+    }
+    
+    if (!this.isAuthenticated) {
+      const password = prompt('Mot de passe administrateur requis:');
+      if (password) {
+        const result = await window.electronAPI.authenticateAdmin(password);
+        
+        if (result.success) {
+          this.isAuthenticated = true;
+          this.showNotification('🔓 Authentifié avec succès', 'success');
+          // Auto-logout after 5 minutes
+          setTimeout(() => {
+            this.isAuthenticated = false;
+            this.showNotification('🔒 Session expirée', 'warning');
+          }, 300000);
+          return true;
+        } else {
+          this.showNotification('❌ ' + result.message, 'error');
+          return false;
+        }
+      }
+      return false;
+    }
+    
+    return true;
+  }
+
+  updateNavigationButtons() {
+    const parentBtn = document.getElementById('btnParent');
+    const isRoot = this.isAtRoot();
+    parentBtn.disabled = isRoot;
+    
+    if (isRoot) {
+      parentBtn.style.opacity = '0.5';
+      parentBtn.style.cursor = 'not-allowed';
+    } else {
+      parentBtn.style.opacity = '1';
+      parentBtn.style.cursor = 'pointer';
+    }
+  }
+
+  updateSyncIndicator() {
+    const statusIcon = document.querySelector('.status-icon');
+    const statusText = document.querySelector('.status-text');
+    const lastUpdate = document.getElementById('lastUpdateTime');
+    
+    if (statusIcon) statusIcon.className = 'status-icon pulse';
+    if (statusText) statusText.textContent = 'Synchronisé';
+    if (lastUpdate) lastUpdate.textContent = new Date().toLocaleTimeString('fr-FR');
+  }
+
+  isAtRoot() {
+    return this.currentPath === this.rootPath || this.currentPath.endsWith(this.rootPath);
+  }
+
+  async goToParent() {
+    if (!this.isAtRoot()) {
+      const parentPath = this.getDirname(this.currentPath);
+      await this.navigateToDirectory(parentPath);
+    }
+  }
+
+  async goToRoot() {
+    await this.navigateToDirectory(this.rootPath);
+  }
+
+  async refreshDirectory() {
+    await this.navigateToDirectory(this.currentPath);
+  }
+
+  async openInSystemExplorer() {
+    await window.electronAPI.openFolderExternal(this.currentPath);
+  }
+
+  // Utility functions for path manipulation
+  joinPath(dir, file) {
+    if (dir.endsWith('/') || dir.endsWith('\\')) {
+      return dir + file;
+    }
+    return dir + '/' + file;
+  }
+
+  getBasename(filePath) {
+    return filePath.split(/[\\/]/).pop();
+  }
+
+  getDirname(filePath) {
+    const parts = filePath.split(/[\\/]/);
+    parts.pop();
+    return parts.join('/');
+  }
+
+  formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  showSettings() {
+    const modal = document.getElementById('modalSettings');
+    const rootPath = document.getElementById('inputRootPath');
+    
+    rootPath.value = this.config.explorer.defaultPath;
+    modal.classList.add('active');
+  }
+
+  hideSettings() {
+    const modal = document.getElementById('modalSettings');
+    modal.classList.remove('active');
+  }
+
+  async saveSettings() {
+    const rootPath = document.getElementById('inputRootPath').value;
+    
+    if (rootPath) {
+      this.config.explorer.defaultPath = rootPath;
+      this.rootPath = rootPath;
+      const result = await window.electronAPI.saveConfig(this.config);
+      
+      if (result.success) {
+        this.showNotification('⚙️ Paramètres sauvegardés', 'success');
+        this.hideSettings();
+        await this.navigateToDirectory(rootPath);
+      } else {
+        this.showNotification('❌ Erreur sauvegarde: ' + result.error, 'error');
+      }
+    }
+  }
+
+  async browseDirectory() {
+    const result = await window.electronAPI.selectDirectory();
+    
+    if (result.success && !result.canceled) {
+      document.getElementById('inputRootPath').value = result.path;
+    }
+  }
+
+  showLoading() {
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const emptyState = document.getElementById('emptyState');
+    const errorState = document.getElementById('errorState');
+    
+    if (loadingSpinner) loadingSpinner.style.display = 'flex';
+    if (emptyState) emptyState.style.display = 'none';
+    if (errorState) errorState.style.display = 'none';
+  }
+
+  hideLoading() {
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    if (loadingSpinner) loadingSpinner.style.display = 'none';
+  }
+
+  showError(message) {
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const emptyState = document.getElementById('emptyState');
+    const errorState = document.getElementById('errorState');
+    const errorMessage = document.getElementById('errorMessage');
+    
+    if (loadingSpinner) loadingSpinner.style.display = 'none';
+    if (emptyState) emptyState.style.display = 'none';
+    if (errorState) errorState.style.display = 'flex';
+    if (errorMessage) errorMessage.textContent = message;
+  }
+
+  showNotification(message, type = 'info') {
+    const notification = document.getElementById('notification');
+    const icon = document.getElementById('notificationIcon');
+    const text = document.getElementById('notificationText');
+
+    if (!notification || !icon || !text) return;
+
+    const icons = {
+      success: '✅',
+      error: '❌',
+      warning: '⚠️',
+      info: 'ℹ️'
+    };
+
+    icon.textContent = icons[type] || icons.info;
+    text.textContent = message;
+    
+    notification.classList.add('show');
+    
+    setTimeout(() => {
+      notification.classList.remove('show');
+    }, 3000);
+  }
 }
 
-// ================================================
-// UTILITAIRES
-// ================================================
-
-function getFileIcon(item) {
-  if (item.isDirectory) return '📁';
-  
-  const iconMap = {
-    // Code
-    'js': '📜',
-    'ts': '📜',
-    'jsx': '⚛️',
-    'tsx': '⚛️',
-    'py': '🐍',
-    'java': '☕',
-    'cpp': '⚙️',
-    'c': '⚙️',
-    'cs': '🔷',
-    'php': '🐘',
-    'rb': '💎',
-    'go': '🔵',
-    'rs': '🦀',
-    
-    // Web
-    'html': '🌐',
-    'css': '🎨',
-    'scss': '🎨',
-    'sass': '🎨',
-    
-    // Data
-    'json': '📋',
-    'xml': '📋',
-    'yaml': '📋',
-    'yml': '📋',
-    'csv': '📊',
-    'sql': '🗄️',
-    
-    // Documents
-    'pdf': '📕',
-    'doc': '📃',
-    'docx': '📃',
-    'txt': '📄',
-    'md': '📝',
-    'rtf': '📄',
-    
-    // Tableurs & Présentations
-    'xls': '📊',
-    'xlsx': '📊',
-    'ppt': '📊',
-    'pptx': '📊',
-    
-    // Images
-    'jpg': '🖼️',
-    'jpeg': '🖼️',
-    'png': '🖼️',
-    'gif': '🖼️',
-    'svg': '🎨',
-    'bmp': '🖼️',
-    'ico': '🖼️',
-    'webp': '🖼️',
-    
-    // Vidéos
-    'mp4': '🎬',
-    'avi': '🎬',
-    'mov': '🎬',
-    'mkv': '🎬',
-    'webm': '🎬',
-    'flv': '🎬',
-    
-    // Audio
-    'mp3': '🎵',
-    'wav': '🎵',
-    'flac': '🎵',
-    'ogg': '🎵',
-    'aac': '🎵',
-    'm4a': '🎵',
-    
-    // Archives
-    'zip': '📦',
-    'rar': '📦',
-    '7z': '📦',
-    'tar': '📦',
-    'gz': '📦',
-    
-    // Exécutables
-    'exe': '⚡',
-    'app': '⚡',
-    'dmg': '💿',
-    'iso': '💿',
-    
-    // Config
-    'env': '🔧',
-    'config': '🔧',
-    'conf': '🔧',
-    'ini': '🔧',
-    
-    // Git
-    'git': '🔀',
-    'gitignore': '🔀'
-  };
-  
-  return iconMap[item.extension] || '📄';
-}
-
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-}
-
-function formatDate(isoString) {
-  const date = new Date(isoString);
-  const now = new Date();
-  const diffMs = now - date;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-  
-  if (diffMins < 1) return 'À l\'instant';
-  if (diffMins < 60) return `Il y a ${diffMins} min`;
-  if (diffHours < 24) return `Il y a ${diffHours}h`;
-  if (diffDays < 7) return `Il y a ${diffDays}j`;
-  
-  return date.toLocaleDateString('fr-FR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  });
-}
-
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-// ================================================
-// DÉMARRAGE
-// ================================================
-
-// Lancer l'application quand le DOM est prêt
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
+// Initialize the app when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  window.app = new FileExplorerApp();
+});
 
