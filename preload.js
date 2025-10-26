@@ -27,6 +27,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteItem: (path, auth) => ipcRenderer.invoke('delete-item', path, auth),
   renameItem: (oldPath, newPath, auth) => ipcRenderer.invoke('rename-item', oldPath, newPath, auth),
 
+  // Enhanced file operations with UAC
+  createFileElevated: (path, content) => ipcRenderer.invoke('create-file-elevated', path, content),
+  deleteItemElevated: (path) => ipcRenderer.invoke('delete-item-elevated', path),
+
+  // Admin privileges
+  checkAdminPrivileges: () => ipcRenderer.invoke('check-admin-privileges'),
+  requestAdminPrivileges: (operation, ...args) => ipcRenderer.invoke('request-admin-privileges', operation, ...args),
+
   // Authentication
   authenticateAdmin: (password) => ipcRenderer.invoke('authenticate-admin', password),
 
@@ -34,6 +42,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowToggleMaximize: () => ipcRenderer.invoke('window-toggle-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),
+  windowDrag: () => ipcRenderer.invoke('window-drag'),
 
   // Event listeners
   onFileSystemChange: (callback) => {

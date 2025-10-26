@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const chokidar = require('chokidar');
+const { spawn } = require('child_process');
+const os = require('os');
 
 // Import the configuration manager
 const ConfigManager = require('./config-manager');
@@ -106,6 +108,12 @@ ipcMain.handle('window-close', () => {
   mainWindow?.close();
 });
 
+ipcMain.handle('window-drag', () => {
+  // This function is called when the titlebar drag area is clicked
+  // The actual dragging is handled by CSS -webkit-app-region: drag
+  return { success: true };
+});
+
 // ============================================
 // CONFIGURATION HANDLERS
 // ============================================
@@ -132,24 +140,76 @@ ipcMain.handle('save-config', async (event, config) => {
 });
 
 // ============================================
+// ADMIN PRIVILEGE HANDLERS
+// ============================================
+
+ipcMain.handle('check-admin-privileges', async () => {
+  if (process.platform === 'win32') {
+    try {
+      // On Windows, try to access a system directory that requires admin
+      const testPath = 'C:\\Windows\\System32\\config';
+      await fs.access(testPath, fs.constants.R_OK);
+      return { isAdmin: true };
+    } catch (error) {
+      return { isAdmin: false };
+    }
+  } else {
+    // On Unix-like systems, check if running as root
+    return { isAdmin: process.getuid && process.getuid() === 0 };
+  }
+});
+
+ipcMain.handle('request-admin-privileges', async (event, operation, ...args) => {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') {
+      resolve({ success: false, error: 'Admin elevation only supported on Windows' });
+      return;
+    }
+
+    // Create a PowerShell script to request elevation
+    const script = `
+      Start-Process -FilePath "${process.execPath}" -ArgumentList "${args.join(' ')}" -Verb RunAs -Wait
+    `;
+
+    const child = spawn('powershell.exe', ['-Command', script], {
+      windowsHide: true
+    });
+
+    child.on('close', (code) => {
+      resolve({ 
+        success: code === 0, 
+        message: code === 0 ? 'Operation completed with admin rights' : 'User cancelled or operation failed' 
+      });
+    });
+
+    child.on('error', (error) => {
+      resolve({ success: false, error: error.message });
+    });
+  });
+});
+
+// ============================================
 // FILE SYSTEM HANDLERS
 // ============================================
 
 // Read directory contents
 ipcMain.handle('read-directory', async (event, dirPath) => {
   try {
+    // Normalize and resolve the path
+    const resolvedPath = path.resolve(dirPath);
+    
     // Check if path exists
-    const stats = await fs.stat(dirPath);
+    const stats = await fs.stat(resolvedPath);
     if (!stats.isDirectory()) {
       throw new Error('Le chemin spécifié n\'est pas un dossier');
     }
 
     // Read directory contents
-    const items = await fs.readdir(dirPath);
+    const items = await fs.readdir(resolvedPath);
     const itemsWithDetails = [];
 
     for (const item of items) {
-      const itemPath = path.join(dirPath, item);
+      const itemPath = path.join(resolvedPath, item);
       try {
         const itemStats = await fs.stat(itemPath);
         
@@ -176,7 +236,7 @@ ipcMain.handle('read-directory', async (event, dirPath) => {
     return {
       success: true,
       items: itemsWithDetails,
-      path: dirPath
+      path: resolvedPath
     };
   } catch (error) {
     return {
@@ -195,7 +255,9 @@ ipcMain.handle('start-enhanced-watching', async (event, dirPath) => {
       fileWatcher = null;
     }
 
-    fileWatcher = chokidar.watch(dirPath, {
+    const resolvedPath = path.resolve(dirPath);
+    
+    fileWatcher = chokidar.watch(resolvedPath, {
       persistent: true,
       ignoreInitial: true,
       depth: 0,
@@ -301,7 +363,8 @@ ipcMain.handle('create-file', async (event, filePath, content = '', isAuthentica
       return { success: false, error: 'Admin authentication required' };
     }
 
-    await fs.writeFile(filePath, content);
+    const resolvedPath = path.resolve(filePath);
+    await fs.writeFile(resolvedPath, content);
     return { success: true, message: 'File created successfully' };
   } catch (error) {
     return { success: false, error: error.message };
@@ -317,7 +380,8 @@ ipcMain.handle('create-directory', async (event, dirPath, isAuthenticated = fals
       return { success: false, error: 'Admin authentication required' };
     }
 
-    await fs.mkdir(dirPath, { recursive: true });
+    const resolvedPath = path.resolve(dirPath);
+    await fs.mkdir(resolvedPath, { recursive: true });
     return { success: true, message: 'Directory created successfully' };
   } catch (error) {
     return { success: false, error: error.message };
@@ -333,11 +397,12 @@ ipcMain.handle('delete-item', async (event, itemPath, isAuthenticated = false) =
       return { success: false, error: 'Admin authentication required' };
     }
 
-    const stats = await fs.stat(itemPath);
+    const resolvedPath = path.resolve(itemPath);
+    const stats = await fs.stat(resolvedPath);
     if (stats.isDirectory()) {
-      await fs.rmdir(itemPath, { recursive: true });
+      await fs.rmdir(resolvedPath, { recursive: true });
     } else {
-      await fs.unlink(itemPath);
+      await fs.unlink(resolvedPath);
     }
     
     return { success: true, message: 'Item deleted successfully' };
@@ -355,8 +420,52 @@ ipcMain.handle('rename-item', async (event, oldPath, newPath, isAuthenticated = 
       return { success: false, error: 'Admin authentication required' };
     }
 
-    await fs.rename(oldPath, newPath);
+    const resolvedOldPath = path.resolve(oldPath);
+    const resolvedNewPath = path.resolve(newPath);
+    await fs.rename(resolvedOldPath, resolvedNewPath);
     return { success: true, message: 'Item renamed successfully' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Enhanced file operations with UAC support
+ipcMain.handle('create-file-elevated', async (event, filePath, content = '') => {
+  try {
+    const adminCheck = await ipcMain.handlers.get('check-admin-privileges')();
+    
+    if (!adminCheck.isAdmin) {
+      // Request elevation
+      const elevationResult = await ipcMain.handlers.get('request-admin-privileges')(event, 'create-file', filePath, content);
+      return elevationResult;
+    }
+
+    const resolvedPath = path.resolve(filePath);
+    await fs.writeFile(resolvedPath, content);
+    return { success: true, message: 'File created successfully with admin privileges' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-item-elevated', async (event, itemPath) => {
+  try {
+    const adminCheck = await ipcMain.handlers.get('check-admin-privileges')();
+    
+    if (!adminCheck.isAdmin) {
+      const elevationResult = await ipcMain.handlers.get('request-admin-privileges')(event, 'delete-item', itemPath);
+      return elevationResult;
+    }
+
+    const resolvedPath = path.resolve(itemPath);
+    const stats = await fs.stat(resolvedPath);
+    if (stats.isDirectory()) {
+      await fs.rmdir(resolvedPath, { recursive: true });
+    } else {
+      await fs.unlink(resolvedPath);
+    }
+    
+    return { success: true, message: 'Item deleted successfully with admin privileges' };
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -386,7 +495,8 @@ ipcMain.handle('authenticate-admin', async (event, password) => {
 // Open file with default application
 ipcMain.handle('open-file', async (event, filePath) => {
   try {
-    await shell.openPath(filePath);
+    const resolvedPath = path.resolve(filePath);
+    await shell.openPath(resolvedPath);
     return { success: true };
   } catch (error) {
     return {
@@ -399,7 +509,8 @@ ipcMain.handle('open-file', async (event, filePath) => {
 // Open folder in system explorer
 ipcMain.handle('open-folder-external', async (event, folderPath) => {
   try {
-    await shell.openPath(folderPath);
+    const resolvedPath = path.resolve(folderPath);
+    await shell.openPath(resolvedPath);
     return { success: true };
   } catch (error) {
     return {
@@ -436,7 +547,8 @@ ipcMain.handle('select-directory', async (event) => {
 // Verify path exists
 ipcMain.handle('verify-path', async (event, dirPath) => {
   try {
-    const stats = await fs.stat(dirPath);
+    const resolvedPath = path.resolve(dirPath);
+    const stats = await fs.stat(resolvedPath);
     return {
       success: true,
       isDirectory: stats.isDirectory(),

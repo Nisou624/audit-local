@@ -70,14 +70,27 @@ class FileExplorerApp {
     this.config = null;
     this.isAuthenticated = false;
     this.fileList = [];
+    this.isAdmin = false;
     this.init();
   }
 
   async init() {
     await this.loadConfiguration();
+    await this.checkAdminStatus();
     this.bindEvents();
     this.setupKeyboardShortcuts();
     this.initializeExplorer();
+  }
+
+  async checkAdminStatus() {
+    try {
+      const result = await window.electronAPI.checkAdminPrivileges();
+      this.isAdmin = result.isAdmin;
+      console.log('Admin status:', this.isAdmin);
+    } catch (error) {
+      console.error('Failed to check admin status:', error);
+      this.isAdmin = false;
+    }
   }
 
   async loadConfiguration() {
@@ -201,11 +214,11 @@ class FileExplorerApp {
     await this.navigateToDirectory(defaultPath);
   }
 
-  async navigateToDirectory(path) {
+  async navigateToDirectory(dirPath) {
     try {
       this.showLoading();
       
-      const result = await window.electronAPI.readDirectory(path);
+      const result = await window.electronAPI.readDirectory(dirPath);
       
       if (result.success) {
         this.currentPath = result.path;
@@ -214,7 +227,7 @@ class FileExplorerApp {
         
         // Start enhanced file watching if auto-refresh is enabled
         if (this.config.explorer.autoRefresh) {
-          await window.electronAPI.startEnhancedWatching(path);
+          await window.electronAPI.startEnhancedWatching(result.path);
         }
       } else {
         this.showError(result.error);
@@ -310,20 +323,20 @@ class FileExplorerApp {
     const date = new Date(item.modified).toLocaleDateString('fr-FR');
     
     return `
-      <div class="file-item" data-path="${item.path}" data-is-directory="${item.isDirectory}">
+      <div class="file-item" data-path="${this.escapeHtml(item.path)}" data-is-directory="${item.isDirectory}">
         <div class="file-icon clickable-file">${icon}</div>
         <div class="file-info">
-          <div class="file-name clickable-file">${item.name}</div>
+          <div class="file-name clickable-file">${this.escapeHtml(item.name)}</div>
           <div class="file-details">
             ${size ? `<div class="file-size">📏 ${size}</div>` : ''}
             <div class="file-date">📅 ${date}</div>
           </div>
         </div>
         <div class="file-actions">
-          <button class="action-btn rename-btn" data-path="${item.path}" title="Renommer">
+          <button class="action-btn rename-btn" data-path="${this.escapeHtml(item.path)}" title="Renommer">
             ✏️
           </button>
-          <button class="action-btn delete-btn" data-path="${item.path}" title="Supprimer">
+          <button class="action-btn delete-btn" data-path="${this.escapeHtml(item.path)}" title="Supprimer">
             🗑️
           </button>
         </div>
@@ -331,18 +344,24 @@ class FileExplorerApp {
     `;
   }
 
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
   bindFileItemEvents() {
     // Navigation clicks
     document.querySelectorAll('.clickable-file').forEach(element => {
       element.addEventListener('click', (e) => {
         const fileItem = e.target.closest('.file-item');
-        const path = fileItem.dataset.path;
+        const filePath = fileItem.dataset.path;
         const isDirectory = fileItem.dataset.isDirectory === 'true';
         
         if (isDirectory) {
-          this.navigateToDirectory(path);
+          this.navigateToDirectory(filePath);
         } else {
-          window.electronAPI.openFile(path);
+          window.electronAPI.openFile(filePath);
         }
       });
     });
@@ -367,7 +386,9 @@ class FileExplorerApp {
     if (await this.checkAdminAuth()) {
       const fileName = prompt('Nom du nouveau fichier:');
       if (fileName && fileName.trim()) {
-        const filePath = this.joinPath(this.currentPath, fileName.trim());
+        const filePath = this.joinPaths(this.currentPath, fileName.trim());
+        console.log('Creating file at:', filePath);
+        
         const result = await window.electronAPI.createFile(filePath, '', this.isAuthenticated);
         
         if (result.success) {
@@ -383,7 +404,9 @@ class FileExplorerApp {
     if (await this.checkAdminAuth()) {
       const folderName = prompt('Nom du nouveau dossier:');
       if (folderName && folderName.trim()) {
-        const folderPath = this.joinPath(this.currentPath, folderName.trim());
+        const folderPath = this.joinPaths(this.currentPath, folderName.trim());
+        console.log('Creating folder at:', folderPath);
+        
         const result = await window.electronAPI.createDirectory(folderPath, this.isAuthenticated);
         
         if (result.success) {
@@ -399,6 +422,8 @@ class FileExplorerApp {
     if (await this.checkAdminAuth()) {
       const itemName = this.getBasename(itemPath);
       if (confirm(`Êtes-vous sûr de vouloir supprimer "${itemName}" ?`)) {
+        console.log('Deleting item:', itemPath);
+        
         const result = await window.electronAPI.deleteItem(itemPath, this.isAuthenticated);
         
         if (result.success) {
@@ -416,7 +441,9 @@ class FileExplorerApp {
       const newName = prompt('Nouveau nom:', currentName);
       
       if (newName && newName.trim() && newName !== currentName) {
-        const newPath = this.joinPath(this.getDirname(itemPath), newName.trim());
+        const newPath = this.joinPaths(this.getDirname(itemPath), newName.trim());
+        console.log('Renaming from:', itemPath, 'to:', newPath);
+        
         const result = await window.electronAPI.renameItem(itemPath, newPath, this.isAuthenticated);
         
         if (result.success) {
@@ -505,22 +532,20 @@ class FileExplorerApp {
     await window.electronAPI.openFolderExternal(this.currentPath);
   }
 
-  // Utility functions for path manipulation
-  joinPath(dir, file) {
-    if (dir.endsWith('/') || dir.endsWith('\\')) {
-      return dir + file;
-    }
-    return dir + '/' + file;
+  // FIXED: Proper path manipulation functions
+  joinPaths(...parts) {
+    // Filter out empty parts and join with appropriate separator
+    return parts.filter(part => part && part.trim()).join(require('path').sep);
   }
 
   getBasename(filePath) {
-    return filePath.split(/[\\/]/).pop();
+    return filePath.split(/[\\/]/).pop() || '';
   }
 
   getDirname(filePath) {
     const parts = filePath.split(/[\\/]/);
     parts.pop();
-    return parts.join('/');
+    return parts.join(require('path').sep) || filePath.charAt(0); // Keep drive letter on Windows
   }
 
   formatFileSize(bytes) {

@@ -1,96 +1,52 @@
 {
-  "name": "file-explorer-glass",
+  "name": "audit-local",
   "version": "1.0.0",
-  "description": "Explorateur de fichiers moderne avec style Glass et synchronisation temps réel",
+  "description": "local file explorer",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build-win": "electron-builder --win",
-    "build-mac": "electron-builder --mac",
-    "build-linux": "electron-builder --linux",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder"
-  },
-  "keywords": [
-    "electron",
-    "file-explorer",
-    "glassmorphism"
-  ],
-  "author": "Your Name",
-  "license": "MIT",
-  "devDependencies": {
-    "electron": "^27.0.0",
-    "electron-builder": "^24.6.4"
-  },
-  "dependencies": {
-    "chokidar": "^3.5.3"
+    "build": "electron-builder",
+    "dist": "electron-builder --publish=never"
   },
   "build": {
-    "appId": "com.fileexplorer.glass",
-    "productName": "File Explorer Glass",
+    "appId": "com.audit.local",
+    "productName": "Audit Local File Explorer",
     "directories": {
       "output": "dist"
     },
     "files": [
       "**/*",
-      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
-      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
-      "!**/node_modules/*.d.ts",
-      "!**/node_modules/.bin",
-      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
-      "!.editorconfig",
-      "!**/._*",
-      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
-      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
-      "!**/{appveyor.yml,.travis.yml,circle.yml}",
-      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
-    ],
-    "extraFiles": [
-      {
-        "from": "sample-folder",
-        "to": "sample-folder"
-      }
+      "!dist",
+      "!node_modules"
     ],
     "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64", "ia32"]
-        }
-      ],
-      "icon": "assets/icon.png"
+      "target": "nsis",
+      "requestedExecutionLevel": "highestAvailable"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "assets/icon.png",
-      "uninstallerIcon": "assets/icon.png",
-      "installerHeaderIcon": "assets/icon.png",
+      "runAfterFinish": false,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "File Explorer Glass"
+      "createStartMenuShortcut": true
     },
     "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": ["x64", "arm64"]
-        }
-      ],
-      "icon": "assets/icon.png",
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.utilities"
     },
     "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": ["x64"]
-        }
-      ],
-      "icon": "assets/icon.png",
-      "category": "FileManager"
+      "category": "Utility"
     }
+  },
+  "keywords": [],
+  "author": "Nisou624",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^latest",
+    "electron-builder": "^latest"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3"
   }
 }
 

@@ -17,7 +17,7 @@
     "showTitleBar": false
   },
   "security": {
-    "requireAdminForModifications": false,
+    "requireAdminForModifications": true,
     "adminPassword": "admin123"
   }
 }

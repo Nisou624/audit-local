@@ -1,16 +1,23 @@
-const { ipcRenderer } = require('electron');
-
 class TitleBar {
   constructor() {
     this.init();
   }
 
   init() {
-    this.createTitleBar();
-    this.bindEvents();
+    // Wait for DOM to be fully loaded
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => this.createTitleBar());
+    } else {
+      this.createTitleBar();
+    }
   }
 
   createTitleBar() {
+    // Check if titlebar already exists
+    if (document.querySelector('.custom-titlebar')) {
+      return;
+    }
+
     const titleBar = document.createElement('div');
     titleBar.className = 'custom-titlebar glass-card';
     titleBar.innerHTML = `
@@ -33,33 +40,41 @@ class TitleBar {
       </div>
     `;
     
+    // Insert at the very beginning of body
     document.body.insertBefore(titleBar, document.body.firstChild);
+    
+    // Bind events after creating the titlebar
+    this.bindEvents();
   }
 
   bindEvents() {
-    document.getElementById('minimizeBtn').addEventListener('click', () => {
-      ipcRenderer.invoke('window-minimize');
-    });
+    const minimizeBtn = document.getElementById('minimizeBtn');
+    const maximizeBtn = document.getElementById('maximizeBtn');
+    const closeBtn = document.getElementById('closeBtn');
 
-    document.getElementById('maximizeBtn').addEventListener('click', () => {
-      ipcRenderer.invoke('window-toggle-maximize');
-    });
+    if (minimizeBtn) {
+      minimizeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.electronAPI.windowMinimize();
+      });
+    }
 
-    document.getElementById('closeBtn').addEventListener('click', () => {
-      ipcRenderer.invoke('window-close');
-    });
+    if (maximizeBtn) {
+      maximizeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.electronAPI.windowToggleMaximize();
+      });
+    }
 
-    // Make titlebar draggable
-    const titlebar = document.querySelector('.custom-titlebar');
-    titlebar.addEventListener('mousedown', () => {
-      ipcRenderer.invoke('window-drag');
-    });
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.electronAPI.windowClose();
+      });
+    }
   }
 }
 
-// Initialize titlebar when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-  new TitleBar();
-});
-
+// Initialize titlebar immediately
+const titleBar = new TitleBar();
 
