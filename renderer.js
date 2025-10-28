@@ -1,4 +1,4 @@
-// FileIcons utility class
+// FileIcons utility class avec logique de sécurité
 class FileIcons {
   static getIcon(item) {
     if (item.isDirectory) {
@@ -68,6 +68,7 @@ class FileIcons {
   }
 
   static canDownload(extension) {
+    // PDF ne peut PAS être téléchargé (données sensibles)
     const downloadableExtensions = ['doc', 'docx', 'xls', 'xlsx', 'csv'];
     return downloadableExtensions.includes(extension.toLowerCase());
   }
@@ -75,6 +76,10 @@ class FileIcons {
   static canPreview(extension) {
     const previewableExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'md'];
     return previewableExtensions.includes(extension.toLowerCase());
+  }
+
+  static isPdfRestricted(extension) {
+    return extension.toLowerCase() === 'pdf';
   }
 }
 
@@ -241,7 +246,7 @@ class FileExplorerApp {
         if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
           reader.readAsText(file);
         } else {
-          reader.readAsDataURL(file);
+          reader.readAsArrayBuffer(file);
         }
       } catch (error) {
         this.showNotification(`❌ Erreur: ${error.message}`, 'error');
@@ -376,6 +381,7 @@ class FileExplorerApp {
       const canOpen = FileIcons.canOpen(extension);
       const canDownload = FileIcons.canDownload(extension);
       const canPreview = FileIcons.canPreview(extension);
+      const isPdfRestricted = FileIcons.isPdfRestricted(extension);
 
       let actionButtons = [];
       
@@ -384,15 +390,22 @@ class FileExplorerApp {
       }
       
       if (canOpen) {
-        actionButtons.push(`<button class="action-btn open-btn" data-path="${this.escapeHtml(item.path)}" title="Ouvrir">📖</button>`);
+        actionButtons.push(`<button class="action-btn open-btn" data-path="${this.escapeHtml(item.path)}" title="Ouvrir avec l'application par défaut">📖</button>`);
       }
       
       if (canDownload) {
         actionButtons.push(`<button class="action-btn download-btn" data-path="${this.escapeHtml(item.path)}" title="Télécharger">💾</button>`);
+      } else if (isPdfRestricted) {
+        actionButtons.push(`<button class="action-btn download-btn disabled-btn" data-path="${this.escapeHtml(item.path)}" title="Téléchargement interdit - Données sensibles" disabled>💾</button>`);
       }
 
       if (actionButtons.length > 0) {
         fileActions = `<div class="file-actions">${actionButtons.join('')}</div>`;
+      }
+
+      // Ajouter un avertissement de sécurité pour les PDFs
+      if (isPdfRestricted) {
+        fileActions += `<div class="pdf-security-notice">🔒 Données sensibles</div>`;
       }
     }
 
@@ -455,7 +468,7 @@ class FileExplorerApp {
       });
     });
 
-    document.querySelectorAll('.download-btn').forEach(btn => {
+    document.querySelectorAll('.download-btn:not(.disabled-btn)').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.downloadFile(btn.dataset.path);
@@ -482,10 +495,15 @@ class FileExplorerApp {
 
   async previewFile(filePath) {
     try {
+      const extension = filePath.split('.').pop().toLowerCase();
+      const isPdfRestricted = FileIcons.isPdfRestricted(extension);
+
+      this.showNotification('📄 Chargement de la prévisualisation...', 'info');
+      
       const result = await window.electronAPI.readFileContents(filePath);
       
       if (result.success) {
-        this.showFilePreviewModal(result);
+        this.showFilePreviewModal(result, isPdfRestricted);
       } else {
         this.showNotification(`❌ Erreur lors de la prévisualisation: ${result.error}`, 'error');
       }
@@ -494,7 +512,7 @@ class FileExplorerApp {
     }
   }
 
-  showFilePreviewModal(fileData) {
+  showFilePreviewModal(fileData, isRestricted = false) {
     // Create preview modal if it doesn't exist
     let modal = document.getElementById('filePreviewModal');
     if (!modal) {
@@ -507,19 +525,50 @@ class FileExplorerApp {
 
     modalTitle.textContent = `Prévisualisation - ${fileData.name}`;
 
+    let contentHTML = '';
+
+    // Ajouter un avertissement de sécurité pour les PDFs
+    if (isRestricted) {
+      contentHTML += `
+        <div class="security-warning">
+          <div class="warning-icon">🔒</div>
+          <p><strong>Données Sensibles</strong></p>
+          <p>Ce document contient des informations sensibles.</p>
+          <p>Le téléchargement et l'impression sont désactivés.</p>
+        </div>
+      `;
+    }
+
     if (fileData.mimeType === 'application/pdf') {
-      modalContent.innerHTML = `
+      contentHTML += `
         <embed src="data:application/pdf;base64,${fileData.content}" 
                type="application/pdf" 
                width="100%" 
-               height="600px" />
+               height="600px" 
+               class="pdf-embed" />
+      `;
+    } else if (fileData.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+               fileData.mimeType === 'application/msword') {
+      contentHTML += `
+        <div class="document-preview">
+          ${fileData.content}
+        </div>
+      `;
+    } else if (fileData.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+               fileData.mimeType === 'application/vnd.ms-excel' ||
+               fileData.extension === 'csv') {
+      contentHTML += `
+        <div class="document-preview">
+          ${fileData.content}
+        </div>
       `;
     } else {
-      modalContent.innerHTML = `
+      contentHTML += `
         <pre class="file-content-preview">${this.escapeHtml(fileData.content)}</pre>
       `;
     }
 
+    modalContent.innerHTML = contentHTML;
     modal.classList.add('active');
   }
 
@@ -562,6 +611,14 @@ class FileExplorerApp {
 
   async downloadFile(filePath) {
     try {
+      const extension = filePath.split('.').pop().toLowerCase();
+      
+      // Vérification supplémentaire côté frontend
+      if (FileIcons.isPdfRestricted(extension)) {
+        this.showNotification('🔒 Téléchargement interdit pour les documents PDF - Données sensibles', 'error');
+        return;
+      }
+
       const result = await window.electronAPI.downloadFile(filePath);
       
       if (result.success) {

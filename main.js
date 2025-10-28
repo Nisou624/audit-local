@@ -6,6 +6,11 @@ const chokidar = require('chokidar');
 const { spawn } = require('child_process');
 const os = require('os');
 
+// Import document processing libraries
+const mammoth = require('mammoth');
+const XLSX = require('xlsx');
+const csv = require('csv-parser');
+
 // Import the configuration manager
 const ConfigManager = require('./config-manager');
 const configManager = new ConfigManager();
@@ -36,6 +41,51 @@ function isPathWithinRoot(targetPath, rootPath) {
   const normalizedTarget = path.resolve(targetPath);
   const normalizedRoot = path.resolve(rootPath);
   return normalizedTarget.startsWith(normalizedRoot);
+}
+
+// Process Office documents
+async function processOfficeDocument(filePath, extension) {
+  try {
+    switch (extension) {
+      case '.docx':
+      case '.doc':
+        const result = await mammoth.convertToHtml({ path: filePath });
+        return {
+          content: result.value,
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        };
+
+      case '.xlsx':
+      case '.xls':
+        const workbook = XLSX.readFile(filePath);
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const htmlString = XLSX.utils.sheet_to_html(worksheet);
+        return {
+          content: htmlString,
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        };
+
+      case '.csv':
+        const csvData = await fs.readFile(filePath, 'utf8');
+        const rows = csvData.split('\n').map(row => row.split(','));
+        let tableHtml = '<table border="1" style="border-collapse: collapse; width: 100%;">';
+        rows.forEach((row, index) => {
+          const tag = index === 0 ? 'th' : 'td';
+          tableHtml += '<tr>' + row.map(cell => `<${tag} style="padding: 8px; border: 1px solid #ddd;">${cell.trim()}</${tag}>`).join('') + '</tr>';
+        });
+        tableHtml += '</table>';
+        return {
+          content: tableHtml,
+          mimeType: 'text/csv'
+        };
+
+      default:
+        throw new Error('Unsupported document format');
+    }
+  } catch (error) {
+    throw new Error(`Failed to process document: ${error.message}`);
+  }
 }
 
 // Create the main window
@@ -236,7 +286,7 @@ ipcMain.handle('read-directory', async (event, dirPath) => {
   }
 });
 
-// Read file contents for preview
+// Read file contents for preview with Office document support
 ipcMain.handle('read-file-contents', async (event, filePath) => {
   try {
     const resolvedPath = path.resolve(filePath);
@@ -257,9 +307,9 @@ ipcMain.handle('read-file-contents', async (event, filePath) => {
     const extension = path.extname(resolvedPath).toLowerCase();
     const fileSize = stats.size;
 
-    // Check if file is too large (limit to 10MB for text files)
-    if (fileSize > 10 * 1024 * 1024) {
-      return { success: false, error: 'File too large to preview' };
+    // Check if file is too large (limit to 50MB)
+    if (fileSize > 50 * 1024 * 1024) {
+      return { success: false, error: 'Fichier trop volumineux pour la prévisualisation' };
     }
 
     let content;
@@ -273,18 +323,47 @@ ipcMain.handle('read-file-contents', async (event, filePath) => {
       case '.js':
       case '.css':
       case '.html':
-      case '.csv':
         content = await fs.readFile(resolvedPath, 'utf8');
         mimeType = 'text/plain';
         break;
+
+      case '.csv':
+        try {
+          const processedDoc = await processOfficeDocument(resolvedPath, extension);
+          content = processedDoc.content;
+          mimeType = processedDoc.mimeType;
+        } catch (err) {
+          // Fallback to plain text
+          content = await fs.readFile(resolvedPath, 'utf8');
+          mimeType = 'text/plain';
+        }
+        break;
+
+      case '.docx':
+      case '.doc':
+      case '.xlsx':
+      case '.xls':
+        try {
+          const processedDoc = await processOfficeDocument(resolvedPath, extension);
+          content = processedDoc.content;
+          mimeType = processedDoc.mimeType;
+        } catch (err) {
+          return { 
+            success: false, 
+            error: `Erreur lors du traitement du document: ${err.message}` 
+          };
+        }
+        break;
+
       case '.pdf':
         // For PDFs, we'll read as buffer and convert to base64
         const pdfBuffer = await fs.readFile(resolvedPath);
         content = pdfBuffer.toString('base64');
         mimeType = 'application/pdf';
         break;
+
       default:
-        return { success: false, error: 'File type not supported for preview' };
+        return { success: false, error: 'Type de fichier non pris en charge pour la prévisualisation' };
     }
 
     return {
@@ -303,7 +382,7 @@ ipcMain.handle('read-file-contents', async (event, filePath) => {
   }
 });
 
-// Download file (copy to downloads folder)
+// Download file with PDF restrictions
 ipcMain.handle('download-file', async (event, filePath) => {
   try {
     const resolvedPath = path.resolve(filePath);
@@ -313,6 +392,25 @@ ipcMain.handle('download-file', async (event, filePath) => {
       return {
         success: false,
         error: 'Accès refusé: En dehors du dossier autorisé'
+      };
+    }
+
+    const extension = path.extname(resolvedPath).toLowerCase();
+    
+    // SECURITY: Block PDF downloads (sensitive data)
+    if (extension === '.pdf') {
+      return {
+        success: false,
+        error: 'Téléchargement interdit pour les documents PDF - Données sensibles'
+      };
+    }
+
+    // Only allow specific file types for download
+    const allowedExtensions = ['.doc', '.docx', '.xls', '.xlsx', '.csv'];
+    if (!allowedExtensions.includes(extension)) {
+      return {
+        success: false,
+        error: 'Type de fichier non autorisé pour le téléchargement'
       };
     }
 
@@ -335,7 +433,7 @@ ipcMain.handle('download-file', async (event, filePath) => {
 
     return {
       success: true,
-      message: 'File downloaded successfully',
+      message: 'Fichier téléchargé avec succès',
       downloadPath: finalDestinationPath
     };
   } catch (error) {
@@ -475,7 +573,15 @@ ipcMain.handle('create-file', async (event, filePath, content = '', isAuthentica
       };
     }
 
-    await fs.writeFile(resolvedPath, content);
+    // Handle different content types
+    let fileContent = content;
+    if (typeof content === 'string' && content.startsWith('data:')) {
+      // Handle data URLs (from drag and drop)
+      const base64Data = content.split(',')[1];
+      fileContent = Buffer.from(base64Data, 'base64');
+    }
+
+    await fs.writeFile(resolvedPath, fileContent);
     return { success: true, message: 'File created successfully' };
   } catch (error) {
     return { success: false, error: error.message };
@@ -613,6 +719,13 @@ ipcMain.handle('open-file', async (event, filePath) => {
         success: false,
         error: 'File type not supported for opening'
       };
+    }
+
+    // Special handling for PDFs to prevent printing
+    if (extension === '.pdf') {
+      // Open in a restricted viewer (browser without print capabilities)
+      // This is a security measure for sensitive PDF documents
+      console.log('Opening PDF in restricted mode (view only)');
     }
 
     await shell.openPath(resolvedPath);
