@@ -1,71 +1,91 @@
 const fs = require('fs').promises;
-const fsSync = require('fs');
 const path = require('path');
+const os = require('os');
 
 class ConfigManager {
   constructor() {
-    this.configPath = path.join(__dirname, 'config.json');
+    this.configDir = path.join(os.homedir(), '.audit-local');
+    this.configFile = path.join(this.configDir, 'config.json');
     this.defaultConfig = {
-      app: {
-        name: "File Explorer Glass",
-        version: "1.0.0",
-        showConfigButton: true,
-        configShortcut: "Ctrl+Comma"
-      },
       explorer: {
-        defaultPath: "./sample-folder",
-        pathType: "local",
-        autoRefresh: true,
-        refreshInterval: 1000
+        defaultPath: './sample-folder',
+        autoRefresh: true
       },
-      ui: {
-        backgroundImage: "./assets/background.jpg",
-        theme: "glass",
-        showTitleBar: false
+      app: {
+        showConfigButton: true
       },
       security: {
-        requireAdminForModifications: false,
-        adminPassword: "admin123"
+        requireAdminForModifications: true,
+        adminPassword: 'admin123'
+      },
+      ui: {
+        backgroundImage: null
       }
     };
   }
 
   async loadConfig() {
     try {
-      if (!fsSync.existsSync(this.configPath)) {
-        await this.createDefaultConfig();
-      }
+      await this.ensureConfigDir();
       
-      const configData = await fs.readFile(this.configPath, 'utf8');
-      return JSON.parse(configData);
+      const configExists = await this.fileExists(this.configFile);
+      if (!configExists) {
+        await this.saveConfig(this.defaultConfig);
+        return this.defaultConfig;
+      }
+
+      const configData = await fs.readFile(this.configFile, 'utf8');
+      const config = JSON.parse(configData);
+      
+      // Merge with defaults to ensure all keys exist
+      return this.mergeConfigs(this.defaultConfig, config);
     } catch (error) {
-      console.error('Error loading config:', error);
+      console.error('Failed to load config:', error);
       return this.defaultConfig;
     }
   }
 
   async saveConfig(config) {
     try {
-      await fs.writeFile(this.configPath, JSON.stringify(config, null, 2));
+      await this.ensureConfigDir();
+      const configJson = JSON.stringify(config, null, 2);
+      await fs.writeFile(this.configFile, configJson);
       return { success: true };
     } catch (error) {
-      console.error('Error saving config:', error);
+      console.error('Failed to save config:', error);
       return { success: false, error: error.message };
     }
   }
 
-  async createDefaultConfig() {
+  async ensureConfigDir() {
     try {
-      await fs.writeFile(this.configPath, JSON.stringify(this.defaultConfig, null, 2));
-      return { success: true };
-    } catch (error) {
-      console.error('Error creating default config:', error);
-      return { success: false, error: error.message };
+      await fs.access(this.configDir);
+    } catch {
+      await fs.mkdir(this.configDir, { recursive: true });
     }
   }
 
-  async resetConfig() {
-    return await this.createDefaultConfig();
+  async fileExists(filePath) {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  mergeConfigs(defaultConfig, userConfig) {
+    const merged = { ...defaultConfig };
+    
+    for (const key in userConfig) {
+      if (typeof userConfig[key] === 'object' && userConfig[key] !== null) {
+        merged[key] = { ...defaultConfig[key], ...userConfig[key] };
+      } else {
+        merged[key] = userConfig[key];
+      }
+    }
+    
+    return merged;
   }
 }
 

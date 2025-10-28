@@ -12,7 +12,7 @@
     "refreshInterval": 1000
   },
   "ui": {
-    "backgroundImage": "./assets/background.jpg",
+    "backgroundImage": "./assets/background.png",
     "theme": "glass",
     "showTitleBar": false
   },

@@ -13,60 +13,38 @@
   <!-- Container principal -->
   <div class="container">
     
-    <!-- HEADER -->
-    <header class="header glass-card">
-      <div class="header-content">
-        <h1 class="app-title">
-          <span class="icon">📂</span>
-          Explorateur de Fichiers Glass
-        </h1>
-        <button class="btn-settings" id="btnSettings" aria-label="Ouvrir les paramètres">
-          <span>⚙️</span>
-          <span class="btn-text">Paramètres</span>
-        </button>
-      </div>
-    </header>
-
-    <!-- INDICATEUR TEMPS RÉEL -->
-    <div class="sync-indicator glass-card" id="syncIndicator">
-      <div class="sync-status">
-        <span class="status-icon pulse">🟢</span>
-        <span class="status-text">Synchronisé</span>
-      </div>
-      <div class="last-update">
-        Dernière mise à jour: <span id="lastUpdateTime">--:--:--</span>
+    <!-- ADMIN LOGIN BUTTON -->
+    <div class="admin-login-section glass-card" id="admin-nav-section">
+      <button class="btn-admin-login" id="btnAdminLogin">
+        <span>🔐</span>
+        <span>Connexion Admin</span>
+      </button>
+      <div class="user-status" id="userStatus">
+        <span class="status-icon">👤</span>
+        <span>Mode: Consultation</span>
       </div>
     </div>
 
     <!-- NAVIGATION -->
-    <nav class="navigation glass-card">
-      <div class="current-path">
-        <span class="path-icon">📍</span>
-        <span class="path-label">Chemin actuel:</span>
-        <span class="path-value" id="currentPath">/</span>
-      </div>
+    <nav class="navigation glass-card" id="file-nav">
       <div class="nav-buttons">
         <button class="btn-nav" id="btnParent" title="Dossier parent">
-          <span>⬆️</span>
-          <span>Parent</span>
+          <span>←</span>
         </button>
         <button class="btn-nav" id="btnHome" title="Retour à la racine">
-          <span>🏠</span>
-          <span>Racine</span>
+          <span>↑</span>
         </button>
         <button class="btn-nav" id="btnRefresh" title="Actualiser">
-          <span>🔄</span>
-          <span>Actualiser</span>
+          <span>⟲</span>
         </button>
         <button class="btn-nav" id="btnOpenExternal" title="Ouvrir dans l'explorateur système">
-          <span>🗂️</span>
-          <span>Ouvrir</span>
+          <span>📂</span>
         </button>
       </div>
     </nav>
 
     <!-- ZONE PRINCIPALE - ARBORESCENCE -->
-    <main class="main-content glass-card">
+    <main class="main-content glass-card" id="fileTreeContainer">
       <div class="content-header">
         <h2 class="section-title">Contenu du dossier</h2>
         <div class="item-count" id="itemCount">0 éléments</div>
@@ -94,78 +72,105 @@
       </div>
     </main>
 
+    <!-- PANEL ADMIN -->
+    <div class="admin-panel" id="adminPanel">
+      <div class="admin-header glass-card">
+        <h2 class="admin-title">
+          <span>⚙️</span>
+          Panneau d'Administration
+        </h2>
+        <div class="admin-actions">
+          <button class="btn-admin-action" id="btnNewFile">
+            <span>📄</span>
+            <span>Nouveau Fichier</span>
+          </button>
+          <button class="btn-admin-action" id="btnNewFolder">
+            <span>📁</span>
+            <span>Nouveau Dossier</span>
+          </button>
+          <button class="btn-disconnect" id="btnDisconnect">
+            <span>🚪</span>
+            <span>Déconnexion</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- NAVIGATION ADMIN -->
+      <nav class="navigation glass-card">
+        <div class="nav-buttons">
+          <button class="btn-nav" id="btnParentAdmin" title="Dossier parent">
+            <span>←</span>
+          </button>
+          <button class="btn-nav" id="btnHomeAdmin" title="Retour à la racine">
+            <span>↑</span>
+          </button>
+          <button class="btn-nav" id="btnRefreshAdmin" title="Actualiser">
+            <span>⟲</span>
+          </button>
+          <button class="btn-nav" id="btnOpenExternalAdmin" title="Ouvrir dans l'explorateur système">
+            <span>📂</span>
+          </button>
+        </div>
+      </nav>
+
+      <!-- ZONE ADMIN PRINCIPALE -->
+      <main class="main-content glass-card">
+        <div class="content-header">
+          <h2 class="section-title">Gestion des Fichiers</h2>
+          <div class="item-count" id="itemCountAdmin">0 éléments</div>
+        </div>
+        
+        <!-- Zone de drag and drop ADMIN -->
+        <div class="drag-drop-zone active" id="dragDropZoneAdmin">
+          <div class="drag-drop-content">
+            <span class="drag-icon">📁</span>
+            <p>Glissez et déposez vos fichiers ici</p>
+            <small>Les fichiers seront ajoutés au dossier courant</small>
+          </div>
+        </div>
+        
+        <!-- Liste des fichiers/dossiers ADMIN -->
+        <div class="file-list" id="fileListAdmin">
+          <!-- Loading spinner -->
+          <div class="loading" id="loadingSpinnerAdmin">
+            <div class="spinner"></div>
+            <p>Chargement...</p>
+          </div>
+        </div>
+      </main>
+    </div>
+
   </div>
 
-  <!-- MODAL PARAMÈTRES -->
-  <div class="modal-overlay" id="modalSettings">
+  <!-- MODAL LOGIN ADMIN -->
+  <div class="modal-overlay" id="modalAdminLogin">
     <div class="modal glass-card">
       <div class="modal-header">
         <h2>
-          <span>⚙️</span>
-          Paramètres
+          <span>🔐</span>
+          Connexion Administrateur
         </h2>
-        <button class="btn-close" id="btnCloseModal" aria-label="Fermer">✕</button>
+        <button class="btn-close" id="btnCloseLoginModal" aria-label="Fermer">✕</button>
       </div>
 
       <div class="modal-body">
-        <!-- Chemin racine -->
         <div class="form-group">
-          <label for="inputRootPath">Chemin racine</label>
-          <div class="input-with-button">
-            <input 
-              type="text" 
-              id="inputRootPath" 
-              class="form-input" 
-              placeholder="/home/user/documents"
-              spellcheck="false"
-            >
-            <button class="btn-browse" id="btnBrowse" title="Parcourir">
-              📁
-            </button>
-          </div>
-        </div>
-
-        <!-- Raccourcis rapides -->
-        <div class="form-group">
-          <label>Raccourcis rapides</label>
-          <div class="shortcuts" id="shortcuts">
-            <!-- Généré dynamiquement -->
-          </div>
-        </div>
-
-        <!-- Type de chemin -->
-        <div class="form-group">
-          <label>Type de chemin</label>
-          <div class="radio-group">
-            <label class="radio-label">
-              <input type="radio" name="pathType" value="local" checked>
-              <span class="radio-custom"></span>
-              <span>💻 Chemin local</span>
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="pathType" value="remote">
-              <span class="radio-custom"></span>
-              <span>🌐 Chemin distant (À venir)</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- Options -->
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input type="checkbox" id="checkAutoRefresh" checked>
-            <span class="checkbox-custom"></span>
-            <span>Synchronisation automatique en temps réel</span>
-          </label>
+          <label for="inputAdminPassword">Mot de passe administrateur</label>
+          <input 
+            type="password" 
+            id="inputAdminPassword" 
+            class="form-input" 
+            placeholder="Entrez votre mot de passe..."
+          >
         </div>
       </div>
 
       <div class="modal-footer">
-        <button class="btn-secondary" id="btnCancel">
+        <button class="btn-secondary" id="btnCancelLogin">
           ❌ Annuler
         </button>
-        <button class="btn-primary" id="btnSave">
-          💾 Sauvegarder
+        <button class="btn-primary" id="btnLogin">
+          🔓 Se connecter
         </button>
       </div>
     </div>
@@ -179,8 +184,6 @@
 
   <script src="renderer.js"></script>
   <script src="titlebar.js"></script>
-  <script src="admin-auth.js"></script>
-  <script src="file-icons.js"></script>
 </body>
 </html>
 

@@ -61,6 +61,21 @@ class FileIcons {
         return '📄';
     }
   }
+
+  static canOpen(extension) {
+    const allowedExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv'];
+    return allowedExtensions.includes(extension.toLowerCase());
+  }
+
+  static canDownload(extension) {
+    const downloadableExtensions = ['doc', 'docx', 'xls', 'xlsx', 'csv'];
+    return downloadableExtensions.includes(extension.toLowerCase());
+  }
+
+  static canPreview(extension) {
+    const previewableExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'md'];
+    return previewableExtensions.includes(extension.toLowerCase());
+  }
 }
 
 class FileExplorerApp {
@@ -71,6 +86,7 @@ class FileExplorerApp {
     this.isAuthenticated = false;
     this.fileList = [];
     this.isAdmin = false;
+    this.isAtRoot = false;
     this.init();
   }
 
@@ -80,6 +96,7 @@ class FileExplorerApp {
     this.bindEvents();
     this.setupKeyboardShortcuts();
     this.initializeExplorer();
+    this.setupDragAndDrop();
   }
 
   async checkAdminStatus() {
@@ -100,23 +117,16 @@ class FileExplorerApp {
       this.applyConfiguration();
     } catch (error) {
       console.error('Failed to load configuration:', error);
-      // Use defaults if config fails
       this.config = {
         explorer: { defaultPath: './sample-folder', autoRefresh: true },
         app: { showConfigButton: true },
-        security: { requireAdminForModifications: false }
+        security: { requireAdminForModifications: true, adminPassword: 'admin123' }
       };
       this.rootPath = this.config.explorer.defaultPath;
     }
   }
 
   applyConfiguration() {
-    // Hide config button if configured
-    if (!this.config.app.showConfigButton) {
-      document.getElementById('btnSettings').style.display = 'none';
-    }
-
-    // Apply background image
     if (this.config.ui?.backgroundImage) {
       const bgElement = document.querySelector('.background-gradient');
       bgElement.style.backgroundImage = `url('${this.config.ui.backgroundImage}')`;
@@ -124,21 +134,28 @@ class FileExplorerApp {
   }
 
   bindEvents() {
-    // Settings modal events
-    document.getElementById('btnSettings').addEventListener('click', () => this.showSettings());
-    document.getElementById('btnCloseModal').addEventListener('click', () => this.hideSettings());
-    document.getElementById('btnCancel').addEventListener('click', () => this.hideSettings());
-    document.getElementById('btnSave').addEventListener('click', () => this.saveSettings());
+    // Admin login events
+    document.getElementById('btnAdminLogin').addEventListener('click', () => this.showAdminLogin());
+    document.getElementById('btnCloseLoginModal').addEventListener('click', () => this.hideAdminLogin());
+    document.getElementById('btnCancelLogin').addEventListener('click', () => this.hideAdminLogin());
+    document.getElementById('btnLogin').addEventListener('click', () => this.handleAdminLogin());
+    document.getElementById('btnDisconnect').addEventListener('click', () => this.handleAdminLogout());
     
-    // Navigation events
+    // Navigation events - Normal mode
     document.getElementById('btnRefresh').addEventListener('click', () => this.refreshDirectory());
     document.getElementById('btnParent').addEventListener('click', () => this.goToParent());
     document.getElementById('btnHome').addEventListener('click', () => this.goToRoot());
-    document.getElementById('btnBrowse').addEventListener('click', () => this.browseDirectory());
     document.getElementById('btnOpenExternal').addEventListener('click', () => this.openInSystemExplorer());
 
-    // Add file operation buttons to navigation
-    this.addFileOperationButtons();
+    // Navigation events - Admin mode
+    document.getElementById('btnRefreshAdmin').addEventListener('click', () => this.refreshDirectory());
+    document.getElementById('btnParentAdmin').addEventListener('click', () => this.goToParent());
+    document.getElementById('btnHomeAdmin').addEventListener('click', () => this.goToRoot());
+    document.getElementById('btnOpenExternalAdmin').addEventListener('click', () => this.openInSystemExplorer());
+
+    // Admin file operations
+    document.getElementById('btnNewFile').addEventListener('click', () => this.createNewFile());
+    document.getElementById('btnNewFolder').addEventListener('click', () => this.createNewFolder());
 
     // Listen for real-time file system changes
     window.electronAPI.onFileSystemChange((data) => {
@@ -153,58 +170,100 @@ class FileExplorerApp {
     });
 
     // Modal overlay click to close
-    document.getElementById('modalSettings').addEventListener('click', (e) => {
+    document.getElementById('modalAdminLogin').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) {
-        this.hideSettings();
+        this.hideAdminLogin();
+      }
+    });
+
+    // Enter key for login
+    document.getElementById('inputAdminPassword').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        this.handleAdminLogin();
       }
     });
   }
 
-  addFileOperationButtons() {
-    const navButtons = document.querySelector('.nav-buttons');
+  setupDragAndDrop() {
+    const dragDropZone = document.getElementById('dragDropZoneAdmin');
     
-    // Check if buttons already exist
-    if (document.getElementById('btnNewFile')) {
+    if (!dragDropZone) return;
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dragDropZone.addEventListener(eventName, this.preventDefaults, false);
+      document.body.addEventListener(eventName, this.preventDefaults, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dragDropZone.addEventListener(eventName, () => {
+        dragDropZone.classList.add('highlight');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dragDropZone.addEventListener(eventName, () => {
+        dragDropZone.classList.remove('highlight');
+      }, false);
+    });
+
+    dragDropZone.addEventListener('drop', (e) => {
+      this.handleDroppedFiles(e.dataTransfer.files);
+    }, false);
+  }
+
+  preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  async handleDroppedFiles(files) {
+    if (!this.isAuthenticated) {
+      this.showNotification('❌ Vous devez être connecté en tant qu\'administrateur', 'error');
       return;
     }
-    
-    // Add file/folder creation buttons
-    const createFileBtn = document.createElement('button');
-    createFileBtn.className = 'btn-nav';
-    createFileBtn.id = 'btnNewFile';
-    createFileBtn.innerHTML = '<span>📄</span><span>Nouveau fichier</span>';
-    createFileBtn.title = 'Créer un nouveau fichier';
-    createFileBtn.addEventListener('click', () => this.createNewFile());
 
-    const createFolderBtn = document.createElement('button');
-    createFolderBtn.className = 'btn-nav';
-    createFolderBtn.id = 'btnNewFolder';
-    createFolderBtn.innerHTML = '<span>📁</span><span>Nouveau dossier</span>';
-    createFolderBtn.title = 'Créer un nouveau dossier';
-    createFolderBtn.addEventListener('click', () => this.createNewFolder());
-
-    navButtons.appendChild(createFileBtn);
-    navButtons.appendChild(createFolderBtn);
+    for (let file of files) {
+      try {
+        const filePath = this.joinPaths(this.currentPath, file.name);
+        const reader = new FileReader();
+        
+        reader.onload = async (e) => {
+          const content = e.target.result;
+          const result = await window.electronAPI.createFile(filePath, content, this.isAuthenticated);
+          
+          if (result.success) {
+            this.showNotification(`📄 Fichier "${file.name}" ajouté avec succès`, 'success');
+          } else {
+            this.showNotification(`❌ Erreur lors de l'ajout de "${file.name}": ${result.error}`, 'error');
+          }
+        };
+        
+        if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+          reader.readAsText(file);
+        } else {
+          reader.readAsDataURL(file);
+        }
+      } catch (error) {
+        this.showNotification(`❌ Erreur: ${error.message}`, 'error');
+      }
+    }
   }
 
   setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
-      // Config shortcut (Ctrl+Comma by default)
-      if (e.ctrlKey && e.key === ',') {
-        e.preventDefault();
-        this.showSettings();
-      }
-      
-      // Refresh (F5)
       if (e.key === 'F5') {
         e.preventDefault();
         this.refreshDirectory();
       }
       
-      // Parent directory (Alt+Up)
       if (e.altKey && e.key === 'ArrowUp') {
         e.preventDefault();
         this.goToParent();
+      }
+
+      if (e.ctrlKey && e.key === 'a' && !this.isAuthenticated) {
+        e.preventDefault();
+        this.showAdminLogin();
       }
     });
   }
@@ -223,9 +282,9 @@ class FileExplorerApp {
       if (result.success) {
         this.currentPath = result.path;
         this.fileList = result.items;
+        this.isAtRoot = result.isAtRoot || false;
         this.updateUI();
         
-        // Start enhanced file watching if auto-refresh is enabled
         if (this.config.explorer.autoRefresh) {
           await window.electronAPI.startEnhancedWatching(result.path);
         }
@@ -243,7 +302,6 @@ class FileExplorerApp {
     switch (action) {
       case 'add':
         if (item) {
-          // Check if item already exists to avoid duplicates
           const exists = this.fileList.find(f => f.path === item.path);
           if (!exists) {
             this.fileList.push(item);
@@ -270,28 +328,18 @@ class FileExplorerApp {
         }
         break;
     }
-    
-    // Update sync indicator
-    this.updateSyncIndicator();
   }
 
   updateUI() {
-    this.updateCurrentPath();
     this.updateFileList();
     this.updateNavigationButtons();
-    this.updateSyncIndicator();
     this.hideLoading();
   }
 
-  updateCurrentPath() {
-    document.getElementById('currentPath').textContent = this.currentPath;
-  }
-
   updateFileList() {
-    const fileListElement = document.getElementById('fileList');
-    const itemCount = document.getElementById('itemCount');
+    const fileListElement = document.getElementById(this.isAuthenticated ? 'fileListAdmin' : 'fileList');
+    const itemCount = document.getElementById(this.isAuthenticated ? 'itemCountAdmin' : 'itemCount');
     
-    // Sort files: directories first, then by name
     const sortedFiles = [...this.fileList].sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1;
       if (!a.isDirectory && b.isDirectory) return 1;
@@ -313,7 +361,6 @@ class FileExplorerApp {
 
     itemCount.textContent = `${sortedFiles.length} élément${sortedFiles.length !== 1 ? 's' : ''}`;
 
-    // Bind click events to file items
     this.bindFileItemEvents();
   }
 
@@ -321,6 +368,41 @@ class FileExplorerApp {
     const icon = FileIcons.getIcon(item);
     const size = item.isDirectory ? '' : this.formatFileSize(item.size);
     const date = new Date(item.modified).toLocaleDateString('fr-FR');
+    const extension = item.extension.toLowerCase();
+    
+    // Create file action buttons based on file type and permissions
+    let fileActions = '';
+    if (!item.isDirectory) {
+      const canOpen = FileIcons.canOpen(extension);
+      const canDownload = FileIcons.canDownload(extension);
+      const canPreview = FileIcons.canPreview(extension);
+
+      let actionButtons = [];
+      
+      if (canPreview) {
+        actionButtons.push(`<button class="action-btn preview-btn" data-path="${this.escapeHtml(item.path)}" title="Prévisualiser">👁️</button>`);
+      }
+      
+      if (canOpen) {
+        actionButtons.push(`<button class="action-btn open-btn" data-path="${this.escapeHtml(item.path)}" title="Ouvrir">📖</button>`);
+      }
+      
+      if (canDownload) {
+        actionButtons.push(`<button class="action-btn download-btn" data-path="${this.escapeHtml(item.path)}" title="Télécharger">💾</button>`);
+      }
+
+      if (actionButtons.length > 0) {
+        fileActions = `<div class="file-actions">${actionButtons.join('')}</div>`;
+      }
+    }
+
+    // Admin actions
+    const adminActions = this.isAuthenticated ? `
+      <div class="file-actions admin-actions">
+        <button class="action-btn rename-btn" data-path="${this.escapeHtml(item.path)}" title="Renommer">✏️</button>
+        <button class="action-btn delete-btn" data-path="${this.escapeHtml(item.path)}" title="Supprimer">🗑️</button>
+      </div>
+    ` : '';
     
     return `
       <div class="file-item" data-path="${this.escapeHtml(item.path)}" data-is-directory="${item.isDirectory}">
@@ -332,14 +414,8 @@ class FileExplorerApp {
             <div class="file-date">📅 ${date}</div>
           </div>
         </div>
-        <div class="file-actions">
-          <button class="action-btn rename-btn" data-path="${this.escapeHtml(item.path)}" title="Renommer">
-            ✏️
-          </button>
-          <button class="action-btn delete-btn" data-path="${this.escapeHtml(item.path)}" title="Supprimer">
-            🗑️
-          </button>
-        </div>
+        ${fileActions}
+        ${adminActions}
       </div>
     `;
   }
@@ -360,137 +436,344 @@ class FileExplorerApp {
         
         if (isDirectory) {
           this.navigateToDirectory(filePath);
-        } else {
-          window.electronAPI.openFile(filePath);
         }
       });
     });
 
-    // Action buttons
-    document.querySelectorAll('.rename-btn').forEach(btn => {
+    // File action buttons
+    document.querySelectorAll('.preview-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.renameItem(btn.dataset.path);
+        this.previewFile(btn.dataset.path);
       });
     });
 
-    document.querySelectorAll('.delete-btn').forEach(btn => {
+    document.querySelectorAll('.open-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.deleteItem(btn.dataset.path);
+        this.openFile(btn.dataset.path);
       });
     });
+
+    document.querySelectorAll('.download-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.downloadFile(btn.dataset.path);
+      });
+    });
+
+    // Admin action buttons
+    if (this.isAuthenticated) {
+      document.querySelectorAll('.rename-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.renameItem(btn.dataset.path);
+        });
+      });
+
+      document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.deleteItem(btn.dataset.path);
+        });
+      });
+    }
+  }
+
+  async previewFile(filePath) {
+    try {
+      const result = await window.electronAPI.readFileContents(filePath);
+      
+      if (result.success) {
+        this.showFilePreviewModal(result);
+      } else {
+        this.showNotification(`❌ Erreur lors de la prévisualisation: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      this.showNotification(`❌ Erreur: ${error.message}`, 'error');
+    }
+  }
+
+  showFilePreviewModal(fileData) {
+    // Create preview modal if it doesn't exist
+    let modal = document.getElementById('filePreviewModal');
+    if (!modal) {
+      modal = this.createFilePreviewModal();
+      document.body.appendChild(modal);
+    }
+
+    const modalTitle = modal.querySelector('.modal-title');
+    const modalContent = modal.querySelector('.preview-content');
+
+    modalTitle.textContent = `Prévisualisation - ${fileData.name}`;
+
+    if (fileData.mimeType === 'application/pdf') {
+      modalContent.innerHTML = `
+        <embed src="data:application/pdf;base64,${fileData.content}" 
+               type="application/pdf" 
+               width="100%" 
+               height="600px" />
+      `;
+    } else {
+      modalContent.innerHTML = `
+        <pre class="file-content-preview">${this.escapeHtml(fileData.content)}</pre>
+      `;
+    }
+
+    modal.classList.add('active');
+  }
+
+  createFilePreviewModal() {
+    const modalHTML = `
+      <div class="modal-overlay" id="filePreviewModal">
+        <div class="modal glass-card preview-modal">
+          <div class="modal-header">
+            <h2 class="modal-title">
+              <span>👁️</span>
+              Prévisualisation
+            </h2>
+            <button class="btn-close" onclick="this.closest('.modal-overlay').classList.remove('active')">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="preview-content"></div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = modalHTML;
+    return tempDiv.firstElementChild;
+  }
+
+  async openFile(filePath) {
+    try {
+      const result = await window.electronAPI.openFile(filePath);
+      
+      if (result.success) {
+        this.showNotification(`📖 Ouverture du fichier: ${this.getBasename(filePath)}`, 'info');
+      } else {
+        this.showNotification(`❌ ${result.error}`, 'error');
+      }
+    } catch (error) {
+      this.showNotification(`❌ Erreur: ${error.message}`, 'error');
+    }
+  }
+
+  async downloadFile(filePath) {
+    try {
+      const result = await window.electronAPI.downloadFile(filePath);
+      
+      if (result.success) {
+        this.showNotification(`💾 Fichier téléchargé vers: ${this.getBasename(result.downloadPath)}`, 'success');
+      } else {
+        this.showNotification(`❌ ${result.error}`, 'error');
+      }
+    } catch (error) {
+      this.showNotification(`❌ Erreur: ${error.message}`, 'error');
+    }
+  }
+
+  // Admin login functions
+  showAdminLogin() {
+    if (this.isAuthenticated) {
+      this.showAdminPanel();
+      return;
+    }
+    
+    const modal = document.getElementById('modalAdminLogin');
+    const passwordInput = document.getElementById('inputAdminPassword');
+    
+    modal.classList.add('active');
+    passwordInput.value = '';
+    passwordInput.focus();
+  }
+
+  hideAdminLogin() {
+    const modal = document.getElementById('modalAdminLogin');
+    modal.classList.remove('active');
+  }
+
+  async handleAdminLogin() {
+    const password = document.getElementById('inputAdminPassword').value;
+    
+    if (!password) {
+      this.showNotification('❌ Veuillez entrer un mot de passe', 'error');
+      return;
+    }
+
+    try {
+      const result = await window.electronAPI.authenticateAdmin(password);
+      
+      if (result.success) {
+        this.isAuthenticated = true;
+        this.hideAdminLogin();
+        this.showAdminPanel();
+        this.hideNavPanel();
+        this.showNotification('🔓 Connexion réussie - Mode Administrateur activé', 'success');
+        
+        this.updateUserStatus();
+        
+        // Auto-logout after 30 minutes
+        setTimeout(() => {
+          if (this.isAuthenticated) {
+            this.handleAdminLogout();
+            this.showNotification('🔒 Session administrateur expirée', 'warning');
+          }
+        }, 1800000);
+      } else {
+        this.showNotification('❌ Mot de passe incorrect', 'error');
+      }
+    } catch (error) {
+      this.showNotification('❌ Erreur de connexion: ' + error.message, 'error');
+    }
+  }
+
+  handleAdminLogout() {
+    this.isAuthenticated = false;
+    this.hideAdminPanel();
+    this.showUserPanel();
+    this.updateUserStatus();
+    this.refreshDirectory();
+    this.showNotification('🚪 Déconnexion réussie - Mode Consultation activé', 'info');
+    this.showNavPanel();
+  }
+
+  showAdminPanel() {
+    document.getElementById('fileTreeContainer').style.display = 'none';
+    document.getElementById('adminPanel').style.display = 'flex';
+    this.refreshDirectory();
+  }
+
+  hideNavPanel() {
+    document.getElementById('admin-nav-section').style.display = 'none';
+    document.getElementById('file-nav').style.display = 'none';
+  }
+
+  showNavPanel() {
+    document.getElementById('admin-nav-section').style.display = 'flex';
+    document.getElementById('file-nav').style.display = 'flex';
+  }
+
+  hideAdminPanel() {
+    document.getElementById('adminPanel').style.display = 'none';
+    document.getElementById('fileTreeContainer').style.display = 'flex';
+  }
+
+  showUserPanel() {
+    this.hideAdminPanel();
+  }
+
+  updateUserStatus() {
+    const statusElement = document.getElementById('userStatus');
+    const loginBtn = document.getElementById('btnAdminLogin');
+    
+    if (this.isAuthenticated) {
+      statusElement.innerHTML = `
+        <span class="status-icon">🔐</span>
+        <span>Mode: Administration</span>
+      `;
+      loginBtn.innerHTML = `
+        <span>⚙️</span>
+        <span>Panneau Admin</span>
+      `;
+    } else {
+      statusElement.innerHTML = `
+        <span class="status-icon">👤</span>
+        <span>Mode: Consultation</span>
+      `;
+      loginBtn.innerHTML = `
+        <span>🔐</span>
+        <span>Connexion Admin</span>
+      `;
+    }
   }
 
   async createNewFile() {
-    if (await this.checkAdminAuth()) {
-      const fileName = prompt('Nom du nouveau fichier:');
-      if (fileName && fileName.trim()) {
-        const filePath = this.joinPaths(this.currentPath, fileName.trim());
-        console.log('Creating file at:', filePath);
-        
-        const result = await window.electronAPI.createFile(filePath, '', this.isAuthenticated);
-        
-        if (result.success) {
-          this.showNotification('📄 Fichier créé avec succès', 'success');
-        } else {
-          this.showNotification('❌ ' + result.error, 'error');
-        }
+    if (!this.isAuthenticated) {
+      this.showNotification('❌ Connexion administrateur requise', 'error');
+      return;
+    }
+
+    const fileName = prompt('Nom du nouveau fichier:');
+    if (fileName && fileName.trim()) {
+      const filePath = this.joinPaths(this.currentPath, fileName.trim());
+      
+      const result = await window.electronAPI.createFile(filePath, '', this.isAuthenticated);
+      
+      if (result.success) {
+        this.showNotification('📄 Fichier créé avec succès', 'success');
+      } else {
+        this.showNotification('❌ ' + result.error, 'error');
       }
     }
   }
 
   async createNewFolder() {
-    if (await this.checkAdminAuth()) {
-      const folderName = prompt('Nom du nouveau dossier:');
-      if (folderName && folderName.trim()) {
-        const folderPath = this.joinPaths(this.currentPath, folderName.trim());
-        console.log('Creating folder at:', folderPath);
-        
-        const result = await window.electronAPI.createDirectory(folderPath, this.isAuthenticated);
-        
-        if (result.success) {
-          this.showNotification('📁 Dossier créé avec succès', 'success');
-        } else {
-          this.showNotification('❌ ' + result.error, 'error');
-        }
+    if (!this.isAuthenticated) {
+      this.showNotification('❌ Connexion administrateur requise', 'error');
+      return;
+    }
+
+    const folderName = prompt('Nom du nouveau dossier:');
+    if (folderName && folderName.trim()) {
+      const folderPath = this.joinPaths(this.currentPath, folderName.trim());
+      
+      const result = await window.electronAPI.createDirectory(folderPath, this.isAuthenticated);
+      
+      if (result.success) {
+        this.showNotification('📁 Dossier créé avec succès', 'success');
+      } else {
+        this.showNotification('❌ ' + result.error, 'error');
       }
     }
   }
 
   async deleteItem(itemPath) {
-    if (await this.checkAdminAuth()) {
-      const itemName = this.getBasename(itemPath);
-      if (confirm(`Êtes-vous sûr de vouloir supprimer "${itemName}" ?`)) {
-        console.log('Deleting item:', itemPath);
-        
-        const result = await window.electronAPI.deleteItem(itemPath, this.isAuthenticated);
-        
-        if (result.success) {
-          this.showNotification('🗑️ Élément supprimé avec succès', 'success');
-        } else {
-          this.showNotification('❌ ' + result.error, 'error');
-        }
+    if (!this.isAuthenticated) {
+      this.showNotification('❌ Connexion administrateur requise', 'error');
+      return;
+    }
+
+    const itemName = this.getBasename(itemPath);
+    if (confirm(`Êtes-vous sûr de vouloir supprimer "${itemName}" ?`)) {
+      const result = await window.electronAPI.deleteItem(itemPath, this.isAuthenticated);
+      
+      if (result.success) {
+        this.showNotification('🗑️ Élément supprimé avec succès', 'success');
+      } else {
+        this.showNotification('❌ ' + result.error, 'error');
       }
     }
   }
 
   async renameItem(itemPath) {
-    if (await this.checkAdminAuth()) {
-      const currentName = this.getBasename(itemPath);
-      const newName = prompt('Nouveau nom:', currentName);
-      
-      if (newName && newName.trim() && newName !== currentName) {
-        const newPath = this.joinPaths(this.getDirname(itemPath), newName.trim());
-        console.log('Renaming from:', itemPath, 'to:', newPath);
-        
-        const result = await window.electronAPI.renameItem(itemPath, newPath, this.isAuthenticated);
-        
-        if (result.success) {
-          this.showNotification('✏️ Élément renommé avec succès', 'success');
-        } else {
-          this.showNotification('❌ ' + result.error, 'error');
-        }
-      }
-    }
-  }
-
-  async checkAdminAuth() {
-    if (!this.config.security.requireAdminForModifications) {
-      return true;
-    }
-    
     if (!this.isAuthenticated) {
-      const password = prompt('Mot de passe administrateur requis:');
-      if (password) {
-        const result = await window.electronAPI.authenticateAdmin(password);
-        
-        if (result.success) {
-          this.isAuthenticated = true;
-          this.showNotification('🔓 Authentifié avec succès', 'success');
-          // Auto-logout after 5 minutes
-          setTimeout(() => {
-            this.isAuthenticated = false;
-            this.showNotification('🔒 Session expirée', 'warning');
-          }, 300000);
-          return true;
-        } else {
-          this.showNotification('❌ ' + result.message, 'error');
-          return false;
-        }
-      }
-      return false;
+      this.showNotification('❌ Connexion administrateur requise', 'error');
+      return;
     }
+
+    const currentName = this.getBasename(itemPath);
+    const newName = prompt('Nouveau nom:', currentName);
     
-    return true;
+    if (newName && newName.trim() && newName !== currentName) {
+      const newPath = this.joinPaths(this.getDirname(itemPath), newName.trim());
+      
+      const result = await window.electronAPI.renameItem(itemPath, newPath, this.isAuthenticated);
+      
+      if (result.success) {
+        this.showNotification('✏️ Élément renommé avec succès', 'success');
+      } else {
+        this.showNotification('❌ ' + result.error, 'error');
+      }
+    }
   }
 
   updateNavigationButtons() {
-    const parentBtn = document.getElementById('btnParent');
-    const isRoot = this.isAtRoot();
-    parentBtn.disabled = isRoot;
+    const parentBtn = document.getElementById(this.isAuthenticated ? 'btnParentAdmin' : 'btnParent');
+    parentBtn.disabled = this.isAtRoot;
     
-    if (isRoot) {
+    if (this.isAtRoot) {
       parentBtn.style.opacity = '0.5';
       parentBtn.style.cursor = 'not-allowed';
     } else {
@@ -499,22 +782,8 @@ class FileExplorerApp {
     }
   }
 
-  updateSyncIndicator() {
-    const statusIcon = document.querySelector('.status-icon');
-    const statusText = document.querySelector('.status-text');
-    const lastUpdate = document.getElementById('lastUpdateTime');
-    
-    if (statusIcon) statusIcon.className = 'status-icon pulse';
-    if (statusText) statusText.textContent = 'Synchronisé';
-    if (lastUpdate) lastUpdate.textContent = new Date().toLocaleTimeString('fr-FR');
-  }
-
-  isAtRoot() {
-    return this.currentPath === this.rootPath || this.currentPath.endsWith(this.rootPath);
-  }
-
   async goToParent() {
-    if (!this.isAtRoot()) {
+    if (!this.isAtRoot) {
       const parentPath = this.getDirname(this.currentPath);
       await this.navigateToDirectory(parentPath);
     }
@@ -529,13 +798,15 @@ class FileExplorerApp {
   }
 
   async openInSystemExplorer() {
-    await window.electronAPI.openFolderExternal(this.currentPath);
+    const result = await window.electronAPI.openFolderExternal(this.currentPath);
+    if (!result.success) {
+      this.showNotification('❌ ' + result.error, 'error');
+    }
   }
 
-  // FIXED: Proper path manipulation functions
+  // Utility functions
   joinPaths(...parts) {
-    // Filter out empty parts and join with appropriate separator
-    return parts.filter(part => part && part.trim()).join(require('path').sep);
+    return parts.filter(part => part && part.trim()).join('/').replace(/\/+/g, '/');
   }
 
   getBasename(filePath) {
@@ -545,7 +816,7 @@ class FileExplorerApp {
   getDirname(filePath) {
     const parts = filePath.split(/[\\/]/);
     parts.pop();
-    return parts.join(require('path').sep) || filePath.charAt(0); // Keep drive letter on Windows
+    return parts.join('/') || filePath.charAt(0);
   }
 
   formatFileSize(bytes) {
@@ -556,68 +827,21 @@ class FileExplorerApp {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
 
-  showSettings() {
-    const modal = document.getElementById('modalSettings');
-    const rootPath = document.getElementById('inputRootPath');
-    
-    rootPath.value = this.config.explorer.defaultPath;
-    modal.classList.add('active');
-  }
-
-  hideSettings() {
-    const modal = document.getElementById('modalSettings');
-    modal.classList.remove('active');
-  }
-
-  async saveSettings() {
-    const rootPath = document.getElementById('inputRootPath').value;
-    
-    if (rootPath) {
-      this.config.explorer.defaultPath = rootPath;
-      this.rootPath = rootPath;
-      const result = await window.electronAPI.saveConfig(this.config);
-      
-      if (result.success) {
-        this.showNotification('⚙️ Paramètres sauvegardés', 'success');
-        this.hideSettings();
-        await this.navigateToDirectory(rootPath);
-      } else {
-        this.showNotification('❌ Erreur sauvegarde: ' + result.error, 'error');
-      }
-    }
-  }
-
-  async browseDirectory() {
-    const result = await window.electronAPI.selectDirectory();
-    
-    if (result.success && !result.canceled) {
-      document.getElementById('inputRootPath').value = result.path;
-    }
-  }
-
   showLoading() {
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    const emptyState = document.getElementById('emptyState');
-    const errorState = document.getElementById('errorState');
-    
+    const loadingSpinner = document.getElementById(this.isAuthenticated ? 'loadingSpinnerAdmin' : 'loadingSpinner');
     if (loadingSpinner) loadingSpinner.style.display = 'flex';
-    if (emptyState) emptyState.style.display = 'none';
-    if (errorState) errorState.style.display = 'none';
   }
 
   hideLoading() {
-    const loadingSpinner = document.getElementById('loadingSpinner');
+    const loadingSpinner = document.getElementById(this.isAuthenticated ? 'loadingSpinnerAdmin' : 'loadingSpinner');
     if (loadingSpinner) loadingSpinner.style.display = 'none';
   }
 
   showError(message) {
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    const emptyState = document.getElementById('emptyState');
     const errorState = document.getElementById('errorState');
     const errorMessage = document.getElementById('errorMessage');
     
-    if (loadingSpinner) loadingSpinner.style.display = 'none';
-    if (emptyState) emptyState.style.display = 'none';
+    this.hideLoading();
     if (errorState) errorState.style.display = 'flex';
     if (errorMessage) errorMessage.textContent = message;
   }
@@ -643,7 +867,7 @@ class FileExplorerApp {
     
     setTimeout(() => {
       notification.classList.remove('show');
-    }, 3000);
+    }, 4000);
   }
 }
 

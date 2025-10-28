@@ -12,6 +12,7 @@ const configManager = new ConfigManager();
 
 let mainWindow;
 let fileWatcher = null;
+let appRootPath = null; // Store the restricted root path
 
 // Helper function to generate file info
 async function generateFileInfo(itemPath) {
@@ -30,6 +31,13 @@ async function generateFileInfo(itemPath) {
   }
 }
 
+// Check if path is within allowed root directory
+function isPathWithinRoot(targetPath, rootPath) {
+  const normalizedTarget = path.resolve(targetPath);
+  const normalizedRoot = path.resolve(rootPath);
+  return normalizedTarget.startsWith(normalizedRoot);
+}
+
 // Create the main window
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -43,7 +51,7 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false
     },
-    frame: false, // Hide default frame for custom titlebar
+    frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#1a1a2e',
     icon: path.join(__dirname, 'assets/icon.png')
@@ -53,6 +61,7 @@ function createWindow() {
 
   // Load and send config to renderer
   configManager.loadConfig().then(config => {
+    appRootPath = path.resolve(config.explorer.defaultPath);
     mainWindow.webContents.once('did-finish-load', () => {
       mainWindow.webContents.send('config-loaded', config);
     });
@@ -109,8 +118,6 @@ ipcMain.handle('window-close', () => {
 });
 
 ipcMain.handle('window-drag', () => {
-  // This function is called when the titlebar drag area is clicked
-  // The actual dragging is handled by CSS -webkit-app-region: drag
   return { success: true };
 });
 
@@ -120,14 +127,18 @@ ipcMain.handle('window-drag', () => {
 
 ipcMain.handle('load-config', async () => {
   try {
-    return await configManager.loadConfig();
+    const config = await configManager.loadConfig();
+    appRootPath = path.resolve(config.explorer.defaultPath);
+    return config;
   } catch (error) {
     console.error('Error loading config:', error);
-    return {
+    const defaultConfig = {
       explorer: { defaultPath: './sample-folder', autoRefresh: true },
       app: { showConfigButton: true },
-      security: { requireAdminForModifications: false }
+      security: { requireAdminForModifications: true, adminPassword: 'admin123' }
     };
+    appRootPath = path.resolve(defaultConfig.explorer.defaultPath);
+    return defaultConfig;
   }
 });
 
@@ -139,6 +150,10 @@ ipcMain.handle('save-config', async (event, config) => {
   }
 });
 
+ipcMain.handle('get-app-root-path', async () => {
+  return { success: true, rootPath: appRootPath };
+});
+
 // ============================================
 // ADMIN PRIVILEGE HANDLERS
 // ============================================
@@ -146,7 +161,6 @@ ipcMain.handle('save-config', async (event, config) => {
 ipcMain.handle('check-admin-privileges', async () => {
   if (process.platform === 'win32') {
     try {
-      // On Windows, try to access a system directory that requires admin
       const testPath = 'C:\\Windows\\System32\\config';
       await fs.access(testPath, fs.constants.R_OK);
       return { isAdmin: true };
@@ -154,57 +168,32 @@ ipcMain.handle('check-admin-privileges', async () => {
       return { isAdmin: false };
     }
   } else {
-    // On Unix-like systems, check if running as root
     return { isAdmin: process.getuid && process.getuid() === 0 };
   }
-});
-
-ipcMain.handle('request-admin-privileges', async (event, operation, ...args) => {
-  return new Promise((resolve) => {
-    if (process.platform !== 'win32') {
-      resolve({ success: false, error: 'Admin elevation only supported on Windows' });
-      return;
-    }
-
-    // Create a PowerShell script to request elevation
-    const script = `
-      Start-Process -FilePath "${process.execPath}" -ArgumentList "${args.join(' ')}" -Verb RunAs -Wait
-    `;
-
-    const child = spawn('powershell.exe', ['-Command', script], {
-      windowsHide: true
-    });
-
-    child.on('close', (code) => {
-      resolve({ 
-        success: code === 0, 
-        message: code === 0 ? 'Operation completed with admin rights' : 'User cancelled or operation failed' 
-      });
-    });
-
-    child.on('error', (error) => {
-      resolve({ success: false, error: error.message });
-    });
-  });
 });
 
 // ============================================
 // FILE SYSTEM HANDLERS
 // ============================================
 
-// Read directory contents
+// Read directory contents with path restriction
 ipcMain.handle('read-directory', async (event, dirPath) => {
   try {
-    // Normalize and resolve the path
     const resolvedPath = path.resolve(dirPath);
     
-    // Check if path exists
+    // Ensure we stay within the app root directory
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        error: 'Accès refusé: En dehors du dossier autorisé'
+      };
+    }
+    
     const stats = await fs.stat(resolvedPath);
     if (!stats.isDirectory()) {
       throw new Error('Le chemin spécifié n\'est pas un dossier');
     }
 
-    // Read directory contents
     const items = await fs.readdir(resolvedPath);
     const itemsWithDetails = [];
 
@@ -236,7 +225,118 @@ ipcMain.handle('read-directory', async (event, dirPath) => {
     return {
       success: true,
       items: itemsWithDetails,
-      path: resolvedPath
+      path: resolvedPath,
+      isAtRoot: resolvedPath === appRootPath
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// Read file contents for preview
+ipcMain.handle('read-file-contents', async (event, filePath) => {
+  try {
+    const resolvedPath = path.resolve(filePath);
+    
+    // Ensure we stay within the app root directory
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        error: 'Accès refusé: En dehors du dossier autorisé'
+      };
+    }
+
+    const stats = await fs.stat(resolvedPath);
+    if (stats.isDirectory()) {
+      return { success: false, error: 'Cannot read directory as file' };
+    }
+
+    const extension = path.extname(resolvedPath).toLowerCase();
+    const fileSize = stats.size;
+
+    // Check if file is too large (limit to 10MB for text files)
+    if (fileSize > 10 * 1024 * 1024) {
+      return { success: false, error: 'File too large to preview' };
+    }
+
+    let content;
+    let mimeType = '';
+
+    // Handle different file types
+    switch (extension) {
+      case '.txt':
+      case '.md':
+      case '.json':
+      case '.js':
+      case '.css':
+      case '.html':
+      case '.csv':
+        content = await fs.readFile(resolvedPath, 'utf8');
+        mimeType = 'text/plain';
+        break;
+      case '.pdf':
+        // For PDFs, we'll read as buffer and convert to base64
+        const pdfBuffer = await fs.readFile(resolvedPath);
+        content = pdfBuffer.toString('base64');
+        mimeType = 'application/pdf';
+        break;
+      default:
+        return { success: false, error: 'File type not supported for preview' };
+    }
+
+    return {
+      success: true,
+      content: content,
+      mimeType: mimeType,
+      extension: extension.substring(1),
+      size: fileSize,
+      name: path.basename(resolvedPath)
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// Download file (copy to downloads folder)
+ipcMain.handle('download-file', async (event, filePath) => {
+  try {
+    const resolvedPath = path.resolve(filePath);
+    
+    // Ensure we stay within the app root directory
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        error: 'Accès refusé: En dehors du dossier autorisé'
+      };
+    }
+
+    const fileName = path.basename(resolvedPath);
+    const downloadsPath = app.getPath('downloads');
+    const destinationPath = path.join(downloadsPath, fileName);
+
+    // Check if file already exists and create unique name if needed
+    let finalDestinationPath = destinationPath;
+    let counter = 1;
+    while (fsSync.existsSync(finalDestinationPath)) {
+      const ext = path.extname(fileName);
+      const nameWithoutExt = path.basename(fileName, ext);
+      finalDestinationPath = path.join(downloadsPath, `${nameWithoutExt} (${counter})${ext}`);
+      counter++;
+    }
+
+    // Copy file
+    await fs.copyFile(resolvedPath, finalDestinationPath);
+
+    return {
+      success: true,
+      message: 'File downloaded successfully',
+      downloadPath: finalDestinationPath
     };
   } catch (error) {
     return {
@@ -249,13 +349,20 @@ ipcMain.handle('read-directory', async (event, dirPath) => {
 // Enhanced file watching with immediate updates
 ipcMain.handle('start-enhanced-watching', async (event, dirPath) => {
   try {
-    // Stop previous watcher if it exists
     if (fileWatcher) {
       await fileWatcher.close();
       fileWatcher = null;
     }
 
     const resolvedPath = path.resolve(dirPath);
+    
+    // Ensure we stay within the app root directory
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        error: 'Cannot watch directory outside of app root'
+      };
+    }
     
     fileWatcher = chokidar.watch(resolvedPath, {
       persistent: true,
@@ -329,11 +436,6 @@ ipcMain.handle('start-enhanced-watching', async (event, dirPath) => {
   }
 });
 
-// Legacy file watching (keeping for compatibility)
-ipcMain.handle('start-watching', async (event, dirPath) => {
-  return ipcMain.handle('start-enhanced-watching')(event, dirPath);
-});
-
 // Stop file watching
 ipcMain.handle('stop-watching', async (event) => {
   try {
@@ -351,7 +453,7 @@ ipcMain.handle('stop-watching', async (event) => {
 });
 
 // ============================================
-// FILE OPERATIONS HANDLERS
+// FILE OPERATIONS HANDLERS (with path restriction)
 // ============================================
 
 // Create a new file
@@ -364,6 +466,15 @@ ipcMain.handle('create-file', async (event, filePath, content = '', isAuthentica
     }
 
     const resolvedPath = path.resolve(filePath);
+    
+    // Ensure we stay within the app root directory
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        error: 'Cannot create file outside of app root directory'
+      };
+    }
+
     await fs.writeFile(resolvedPath, content);
     return { success: true, message: 'File created successfully' };
   } catch (error) {
@@ -381,6 +492,15 @@ ipcMain.handle('create-directory', async (event, dirPath, isAuthenticated = fals
     }
 
     const resolvedPath = path.resolve(dirPath);
+    
+    // Ensure we stay within the app root directory
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        error: 'Cannot create directory outside of app root directory'
+      };
+    }
+
     await fs.mkdir(resolvedPath, { recursive: true });
     return { success: true, message: 'Directory created successfully' };
   } catch (error) {
@@ -398,6 +518,15 @@ ipcMain.handle('delete-item', async (event, itemPath, isAuthenticated = false) =
     }
 
     const resolvedPath = path.resolve(itemPath);
+    
+    // Ensure we stay within the app root directory and not deleting root itself
+    if (!isPathWithinRoot(resolvedPath, appRootPath) || resolvedPath === appRootPath) {
+      return {
+        success: false,
+        error: 'Cannot delete this item'
+      };
+    }
+
     const stats = await fs.stat(resolvedPath);
     if (stats.isDirectory()) {
       await fs.rmdir(resolvedPath, { recursive: true });
@@ -422,50 +551,19 @@ ipcMain.handle('rename-item', async (event, oldPath, newPath, isAuthenticated = 
 
     const resolvedOldPath = path.resolve(oldPath);
     const resolvedNewPath = path.resolve(newPath);
+    
+    // Ensure both paths are within the app root directory
+    if (!isPathWithinRoot(resolvedOldPath, appRootPath) || 
+        !isPathWithinRoot(resolvedNewPath, appRootPath) ||
+        resolvedOldPath === appRootPath) {
+      return {
+        success: false,
+        error: 'Cannot rename this item'
+      };
+    }
+
     await fs.rename(resolvedOldPath, resolvedNewPath);
     return { success: true, message: 'Item renamed successfully' };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-// Enhanced file operations with UAC support
-ipcMain.handle('create-file-elevated', async (event, filePath, content = '') => {
-  try {
-    const adminCheck = await ipcMain.handlers.get('check-admin-privileges')();
-    
-    if (!adminCheck.isAdmin) {
-      // Request elevation
-      const elevationResult = await ipcMain.handlers.get('request-admin-privileges')(event, 'create-file', filePath, content);
-      return elevationResult;
-    }
-
-    const resolvedPath = path.resolve(filePath);
-    await fs.writeFile(resolvedPath, content);
-    return { success: true, message: 'File created successfully with admin privileges' };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('delete-item-elevated', async (event, itemPath) => {
-  try {
-    const adminCheck = await ipcMain.handlers.get('check-admin-privileges')();
-    
-    if (!adminCheck.isAdmin) {
-      const elevationResult = await ipcMain.handlers.get('request-admin-privileges')(event, 'delete-item', itemPath);
-      return elevationResult;
-    }
-
-    const resolvedPath = path.resolve(itemPath);
-    const stats = await fs.stat(resolvedPath);
-    if (stats.isDirectory()) {
-      await fs.rmdir(resolvedPath, { recursive: true });
-    } else {
-      await fs.unlink(resolvedPath);
-    }
-    
-    return { success: true, message: 'Item deleted successfully with admin privileges' };
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -489,13 +587,34 @@ ipcMain.handle('authenticate-admin', async (event, password) => {
 });
 
 // ============================================
-// EXISTING HANDLERS (keeping for compatibility)
+// FILE OPENING HANDLERS (with restrictions)
 // ============================================
 
-// Open file with default application
+// Open file with restrictions based on file type
 ipcMain.handle('open-file', async (event, filePath) => {
   try {
     const resolvedPath = path.resolve(filePath);
+    
+    // Ensure we stay within the app root directory
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        error: 'Access denied: Outside of allowed directory'
+      };
+    }
+
+    const extension = path.extname(resolvedPath).toLowerCase();
+    
+    // Check if file type is allowed to be opened
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv'];
+    
+    if (!allowedExtensions.includes(extension)) {
+      return {
+        success: false,
+        error: 'File type not supported for opening'
+      };
+    }
+
     await shell.openPath(resolvedPath);
     return { success: true };
   } catch (error) {
@@ -506,10 +625,19 @@ ipcMain.handle('open-file', async (event, filePath) => {
   }
 });
 
-// Open folder in system explorer
+// Open folder in system explorer (restricted)
 ipcMain.handle('open-folder-external', async (event, folderPath) => {
   try {
     const resolvedPath = path.resolve(folderPath);
+    
+    // Ensure we stay within the app root directory
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        error: 'Access denied: Outside of allowed directory'
+      };
+    }
+
     await shell.openPath(resolvedPath);
     return { success: true };
   } catch (error) {
@@ -520,34 +648,19 @@ ipcMain.handle('open-folder-external', async (event, folderPath) => {
   }
 });
 
-// Directory selection dialog
-ipcMain.handle('select-directory', async (event) => {
-  try {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory'],
-      title: 'Sélectionner un dossier'
-    });
-
-    if (result.canceled) {
-      return { success: false, canceled: true };
-    }
-
-    return {
-      success: true,
-      path: result.filePaths[0]
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-});
-
-// Verify path exists
+// Verify path exists (with restriction)
 ipcMain.handle('verify-path', async (event, dirPath) => {
   try {
     const resolvedPath = path.resolve(dirPath);
+    
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        exists: false,
+        error: 'Path outside of allowed directory'
+      };
+    }
+
     const stats = await fs.stat(resolvedPath);
     return {
       success: true,
@@ -558,45 +671,6 @@ ipcMain.handle('verify-path', async (event, dirPath) => {
     return {
       success: false,
       exists: false,
-      error: error.message
-    };
-  }
-});
-
-// Get user home directory
-ipcMain.handle('get-home-directory', async (event) => {
-  try {
-    const homeDir = app.getPath('home');
-    return {
-      success: true,
-      path: homeDir
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-});
-
-// Get common system directories
-ipcMain.handle('get-common-directories', async (event) => {
-  try {
-    return {
-      success: true,
-      directories: {
-        home: app.getPath('home'),
-        documents: app.getPath('documents'),
-        downloads: app.getPath('downloads'),
-        desktop: app.getPath('desktop'),
-        pictures: app.getPath('pictures'),
-        music: app.getPath('music'),
-        videos: app.getPath('videos')
-      }
-    };
-  } catch (error) {
-    return {
-      success: false,
       error: error.message
     };
   }

@@ -1,48 +1,44 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Expose protected methods that allow the renderer process to use
+// the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
-  // File system operations
-  readDirectory: (path) => ipcRenderer.invoke('read-directory', path),
-  openFile: (path) => ipcRenderer.invoke('open-file', path),
-  openFolderExternal: (path) => ipcRenderer.invoke('open-folder-external', path),
-  selectDirectory: () => ipcRenderer.invoke('select-directory'),
-  verifyPath: (path) => ipcRenderer.invoke('verify-path', path),
-  
-  // File watching
-  startWatching: (path) => ipcRenderer.invoke('start-watching', path),
-  startEnhancedWatching: (path) => ipcRenderer.invoke('start-enhanced-watching', path),
-  stopWatching: () => ipcRenderer.invoke('stop-watching'),
-  
-  // System directories
-  getHomeDirectory: () => ipcRenderer.invoke('get-home-directory'),
-  getCommonDirectories: () => ipcRenderer.invoke('get-common-directories'),
-
-  // Configuration
-  loadConfig: () => ipcRenderer.invoke('load-config'),
-  saveConfig: (config) => ipcRenderer.invoke('save-config', config),
-
-  // File operations
-  createFile: (path, content, auth) => ipcRenderer.invoke('create-file', path, content, auth),
-  createDirectory: (path, auth) => ipcRenderer.invoke('create-directory', path, auth),
-  deleteItem: (path, auth) => ipcRenderer.invoke('delete-item', path, auth),
-  renameItem: (oldPath, newPath, auth) => ipcRenderer.invoke('rename-item', oldPath, newPath, auth),
-
-  // Enhanced file operations with UAC
-  createFileElevated: (path, content) => ipcRenderer.invoke('create-file-elevated', path, content),
-  deleteItemElevated: (path) => ipcRenderer.invoke('delete-item-elevated', path),
-
-  // Admin privileges
-  checkAdminPrivileges: () => ipcRenderer.invoke('check-admin-privileges'),
-  requestAdminPrivileges: (operation, ...args) => ipcRenderer.invoke('request-admin-privileges', operation, ...args),
-
-  // Authentication
-  authenticateAdmin: (password) => ipcRenderer.invoke('authenticate-admin', password),
-
   // Window controls
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowToggleMaximize: () => ipcRenderer.invoke('window-toggle-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),
   windowDrag: () => ipcRenderer.invoke('window-drag'),
+
+  // Configuration
+  loadConfig: () => ipcRenderer.invoke('load-config'),
+  saveConfig: (config) => ipcRenderer.invoke('save-config', config),
+  getAppRootPath: () => ipcRenderer.invoke('get-app-root-path'),
+
+  // Admin privileges
+  checkAdminPrivileges: () => ipcRenderer.invoke('check-admin-privileges'),
+
+  // File system operations
+  readDirectory: (dirPath) => ipcRenderer.invoke('read-directory', dirPath),
+  startEnhancedWatching: (dirPath) => ipcRenderer.invoke('start-enhanced-watching', dirPath),
+  stopWatching: () => ipcRenderer.invoke('stop-watching'),
+  
+  // File operations
+  createFile: (filePath, content, isAuthenticated) => ipcRenderer.invoke('create-file', filePath, content, isAuthenticated),
+  createDirectory: (dirPath, isAuthenticated) => ipcRenderer.invoke('create-directory', dirPath, isAuthenticated),
+  deleteItem: (itemPath, isAuthenticated) => ipcRenderer.invoke('delete-item', itemPath, isAuthenticated),
+  renameItem: (oldPath, newPath, isAuthenticated) => ipcRenderer.invoke('rename-item', oldPath, newPath, isAuthenticated),
+  
+  // File reading and downloading
+  readFileContents: (filePath) => ipcRenderer.invoke('read-file-contents', filePath),
+  downloadFile: (filePath) => ipcRenderer.invoke('download-file', filePath),
+  
+  // Authentication
+  authenticateAdmin: (password) => ipcRenderer.invoke('authenticate-admin', password),
+
+  // File operations (restricted)
+  openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
+  openFolderExternal: (folderPath) => ipcRenderer.invoke('open-folder-external', folderPath),
+  verifyPath: (dirPath) => ipcRenderer.invoke('verify-path', dirPath),
 
   // Event listeners
   onFileSystemChange: (callback) => {

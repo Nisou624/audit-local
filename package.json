@@ -1,7 +1,7 @@
 {
   "name": "audit-local",
-  "version": "1.0.0",
-  "description": "local file explorer",
+  "version": "2.0.0",
+  "description": "Local file explorer with admin panel and file management capabilities",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -18,7 +18,14 @@
     "files": [
       "**/*",
       "!dist",
-      "!node_modules"
+      "!node_modules",
+      "sample-folder/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "sample-folder",
+        "to": "sample-folder"
+      }
     ],
     "win": {
       "target": "nsis",
@@ -38,7 +45,7 @@
       "category": "Utility"
     }
   },
-  "keywords": [],
+  "keywords": ["file-explorer", "admin-panel", "electron", "file-management"],
   "author": "Nisou624",
   "license": "ISC",
   "devDependencies": {
