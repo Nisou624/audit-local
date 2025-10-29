@@ -19,12 +19,12 @@ class TitleBar {
     }
 
     const titleBar = document.createElement('div');
-    titleBar.className = 'custom-titlebar glass-card-titlebar';
+    titleBar.className = 'custom-titlebar';
     titleBar.innerHTML = `
       <div class="titlebar-content">
         <div class="titlebar-left">
           <div class="app-icon">📂</div>
-          <div class="app-name">File Explorer Glass</div>
+          <div class="app-name">Audit - SNTP</div>
         </div>
         <div class="titlebar-right">
           <button class="titlebar-btn" id="minimizeBtn" title="Minimize">
@@ -40,11 +40,40 @@ class TitleBar {
       </div>
     `;
     
-    // Insert at the very beginning of body
+    // Insert at the very beginning of body to ensure it's always on top
     document.body.insertBefore(titleBar, document.body.firstChild);
+    
+    // Add scroll event listener to ensure titlebar stays fixed
+    this.handleScroll();
     
     // Bind events after creating the titlebar
     this.bindEvents();
+  }
+
+  handleScroll() {
+    // Ensure titlebar always stays fixed at the top regardless of scroll
+    window.addEventListener('scroll', () => {
+      const titleBar = document.querySelector('.custom-titlebar');
+      if (titleBar) {
+        titleBar.style.position = 'fixed';
+        titleBar.style.top = '0';
+        titleBar.style.left = '0';
+        titleBar.style.right = '0';
+        titleBar.style.zIndex = '10000';
+      }
+    });
+
+    // Also handle resize to maintain positioning
+    window.addEventListener('resize', () => {
+      const titleBar = document.querySelector('.custom-titlebar');
+      if (titleBar) {
+        titleBar.style.position = 'fixed';
+        titleBar.style.top = '0';
+        titleBar.style.left = '0';
+        titleBar.style.right = '0';
+        titleBar.style.zIndex = '10000';
+      }
+    });
   }
 
   bindEvents() {

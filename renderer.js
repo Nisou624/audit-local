@@ -200,20 +200,20 @@ class FileExplorerApp {
     // Preview modal events
     document.getElementById('btnClosePreviewModal').addEventListener('click', () => this.hideFilePreview());
     
+    // Custom dialog events
+    this.bindCustomDialogEvents();
+    
     // Navigation events - Normal mode
     document.getElementById('btnRefresh').addEventListener('click', () => this.refreshDirectory());
     document.getElementById('btnParent').addEventListener('click', () => this.goToParent());
     document.getElementById('btnHome').addEventListener('click', () => this.goToRoot());
-    // Fix #6: Hide external folder button but keep for dev use
 
     // Navigation events - Admin mode
     document.getElementById('btnRefreshAdmin').addEventListener('click', () => this.refreshDirectory());
     document.getElementById('btnParentAdmin').addEventListener('click', () => this.goToParent());
     document.getElementById('btnHomeAdmin').addEventListener('click', () => this.goToRoot());
-    // Fix #6: Hide external folder button but keep for dev use
 
     // Admin file operations
-    // Fix #7: Remove new file button functionality
     document.getElementById('btnNewFolder').addEventListener('click', () => this.createNewFolder());
 
     // Listen for real-time file system changes
@@ -247,6 +247,98 @@ class FileExplorerApp {
         this.handleAdminLogin();
       }
     });
+  }
+
+  // Custom dialog binding events
+  bindCustomDialogEvents() {
+    // Prompt dialog events
+    document.getElementById('btnClosePromptModal').addEventListener('click', () => this.hideCustomPrompt());
+    document.getElementById('btnCancelPrompt').addEventListener('click', () => this.hideCustomPrompt());
+    document.getElementById('btnConfirmPrompt').addEventListener('click', () => this.confirmCustomPrompt());
+    
+    // Confirm dialog events
+    document.getElementById('btnCloseConfirmModal').addEventListener('click', () => this.hideCustomConfirm());
+    document.getElementById('btnCancelConfirm').addEventListener('click', () => this.hideCustomConfirm());
+    document.getElementById('btnConfirmConfirm').addEventListener('click', () => this.confirmCustomConfirm());
+
+    // Enter key for prompt
+    document.getElementById('inputCustomPrompt').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        this.confirmCustomPrompt();
+      }
+    });
+
+    // Modal overlay clicks
+    document.getElementById('modalCustomPrompt').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        this.hideCustomPrompt();
+      }
+    });
+
+    document.getElementById('modalCustomConfirm').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        this.hideCustomConfirm();
+      }
+    });
+  }
+
+  // Custom prompt dialog methods
+  showCustomPrompt(title, label, placeholder = '', defaultValue = '') {
+    return new Promise((resolve) => {
+      this.promptResolve = resolve;
+      
+      document.getElementById('promptTitle').innerHTML = `<span>✏️</span> ${title}`;
+      document.getElementById('promptLabel').textContent = label;
+      document.getElementById('inputCustomPrompt').placeholder = placeholder;
+      document.getElementById('inputCustomPrompt').value = defaultValue;
+      
+      document.getElementById('modalCustomPrompt').classList.add('active');
+      document.getElementById('inputCustomPrompt').focus();
+      document.getElementById('inputCustomPrompt').select();
+    });
+  }
+
+  hideCustomPrompt() {
+    document.getElementById('modalCustomPrompt').classList.remove('active');
+    if (this.promptResolve) {
+      this.promptResolve(null);
+      this.promptResolve = null;
+    }
+  }
+
+  confirmCustomPrompt() {
+    const value = document.getElementById('inputCustomPrompt').value;
+    document.getElementById('modalCustomPrompt').classList.remove('active');
+    if (this.promptResolve) {
+      this.promptResolve(value);
+      this.promptResolve = null;
+    }
+  }
+
+  // Custom confirm dialog methods
+  showCustomConfirm(message) {
+    return new Promise((resolve) => {
+      this.confirmResolve = resolve;
+      
+      document.getElementById('confirmMessage').textContent = message;
+      document.getElementById('modalCustomConfirm').classList.add('active');
+    });
+  }
+
+  hideCustomConfirm() {
+    document.getElementById('modalCustomConfirm').classList.remove('active');
+    if (this.confirmResolve) {
+      this.confirmResolve(false);
+      this.confirmResolve = null;
+    }
+  }
+
+  confirmCustomConfirm() {
+    document.getElementById('modalCustomConfirm').classList.remove('active');
+    if (this.confirmResolve) {
+      this.confirmResolve(true);
+      this.confirmResolve = null;
+    }
   }
 
   // Fix #3: Improved drag and drop functionality
@@ -338,6 +430,8 @@ class FileExplorerApp {
       if (e.key === 'Escape') {
         this.hideFilePreview();
         this.hideAdminLogin();
+        this.hideCustomPrompt();
+        this.hideCustomConfirm();
       }
     });
   }
@@ -786,23 +880,14 @@ class FileExplorerApp {
     }
 
     updateUserStatus() {
-      const statusElement = document.getElementById('userStatus');
       const loginBtn = document.getElementById('btnAdminLogin');
       
       if (this.isAuthenticated) {
-        statusElement.innerHTML = `
-          <span class="status-icon">🔐</span>
-          <span>Mode: Administration</span>
-        `;
         loginBtn.innerHTML = `
           <span>⚙️</span>
           <span>Panneau Admin</span>
         `;
       } else {
-        statusElement.innerHTML = `
-          <span class="status-icon">👤</span>
-          <span>Mode: Consultation</span>
-        `;
         loginBtn.innerHTML = `
           <span>🔐</span>
           <span>Connexion Admin</span>
@@ -810,24 +895,33 @@ class FileExplorerApp {
       }
     }
 
-    // Fix #7: Fixed new folder creation
+    // Fix #7: Fixed new folder creation with custom prompt
     async createNewFolder() {
       if (!this.isAuthenticated) {
         this.showNotification('❌ Connexion administrateur requise', 'error');
         return;
       }
 
-      const folderName = prompt('Nom du nouveau dossier:');
-      if (folderName && folderName.trim()) {
-        const folderPath = this.joinPaths(this.currentPath, folderName.trim());
+      try {
+        const folderName = await this.showCustomPrompt(
+          'Nouveau Dossier',
+          'Nom du nouveau dossier:',
+          'Nouveau dossier'
+        );
         
-        const result = await window.electronAPI.createDirectory(folderPath, this.isAuthenticated);
-        
-        if (result.success) {
-          this.showNotification('📁 Dossier créé avec succès', 'success');
-        } else {
-          this.showNotification('❌ ' + result.error, 'error');
+        if (folderName && folderName.trim()) {
+          const folderPath = this.joinPaths(this.currentPath, folderName.trim());
+          
+          const result = await window.electronAPI.createDirectory(folderPath, this.isAuthenticated);
+          
+          if (result.success) {
+            this.showNotification('📁 Dossier créé avec succès', 'success');
+          } else {
+            this.showNotification('❌ ' + result.error, 'error');
+          }
         }
+      } catch (error) {
+        this.showNotification('❌ Erreur lors de la création du dossier: ' + error.message, 'error');
       }
     }
 
@@ -837,38 +931,53 @@ class FileExplorerApp {
         return;
       }
 
-      const itemName = this.getBasename(itemPath);
-      if (confirm(`Êtes-vous sûr de vouloir supprimer "${itemName}" ?`)) {
-        const result = await window.electronAPI.deleteItem(itemPath, this.isAuthenticated);
+      try {
+        const itemName = this.getBasename(itemPath);
+        const confirmed = await this.showCustomConfirm(`Êtes-vous sûr de vouloir supprimer "${itemName}" ?`);
         
-        if (result.success) {
-          this.showNotification('🗑️ Élément supprimé avec succès', 'success');
-        } else {
-          this.showNotification('❌ ' + result.error, 'error');
+        if (confirmed) {
+          const result = await window.electronAPI.deleteItem(itemPath, this.isAuthenticated);
+          
+          if (result.success) {
+            this.showNotification('🗑️ Élément supprimé avec succès', 'success');
+          } else {
+            this.showNotification('❌ ' + result.error, 'error');
+          }
         }
+      } catch (error) {
+        this.showNotification('❌ Erreur lors de la suppression: ' + error.message, 'error');
       }
     }
 
-    // Fix #10: Fixed rename functionality
+    // Fix #10: Fixed rename functionality with custom prompt
     async renameItem(itemPath) {
       if (!this.isAuthenticated) {
         this.showNotification('❌ Connexion administrateur requise', 'error');
         return;
       }
 
-      const currentName = this.getBasename(itemPath);
-      const newName = prompt('Nouveau nom:', currentName);
-      
-      if (newName && newName.trim() && newName !== currentName) {
-        const newPath = this.joinPaths(this.getDirname(itemPath), newName.trim());
+      try {
+        const currentName = this.getBasename(itemPath);
+        const newName = await this.showCustomPrompt(
+          'Renommer',
+          'Nouveau nom:',
+          'Nouveau nom',
+          currentName
+        );
         
-        const result = await window.electronAPI.renameItem(itemPath, newPath, this.isAuthenticated);
-        
-        if (result.success) {
-          this.showNotification('✏️ Élément renommé avec succès', 'success');
-        } else {
-          this.showNotification('❌ ' + result.error, 'error');
+        if (newName && newName.trim() && newName !== currentName) {
+          const newPath = this.joinPaths(this.getDirname(itemPath), newName.trim());
+          
+          const result = await window.electronAPI.renameItem(itemPath, newPath, this.isAuthenticated);
+          
+          if (result.success) {
+            this.showNotification('✏️ Élément renommé avec succès', 'success');
+          } else {
+            this.showNotification('❌ ' + result.error, 'error');
+          }
         }
+      } catch (error) {
+        this.showNotification('❌ Erreur lors du renommage: ' + error.message, 'error');
       }
     }
 

@@ -25,10 +25,6 @@
         <span>🔐</span>
         <span>Connexion Admin</span>
       </button>
-      <div class="user-status" id="userStatus">
-        <span class="status-icon">👤</span>
-        <span>Mode: Consultation</span>
-      </div>
     </div>
 
     <!-- NAVIGATION -->
@@ -201,6 +197,66 @@
       </div>
       <div class="modal-body">
         <div class="preview-content" id="previewContent"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL CUSTOM PROMPT -->
+  <div class="modal-overlay" id="modalCustomPrompt">
+    <div class="modal glass-card">
+      <div class="modal-header">
+        <h2 id="promptTitle">
+          <span>✏️</span>
+          Saisie
+        </h2>
+        <button class="btn-close" id="btnClosePromptModal" aria-label="Fermer">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="inputCustomPrompt" id="promptLabel">Nom:</label>
+          <input 
+            type="text" 
+            id="inputCustomPrompt" 
+            class="form-input" 
+            placeholder="Entrez le nom..."
+          >
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btnCancelPrompt">
+          ❌ Annuler
+        </button>
+        <button class="btn-primary" id="btnConfirmPrompt">
+          ✅ Confirmer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL CUSTOM CONFIRM -->
+  <div class="modal-overlay" id="modalCustomConfirm">
+    <div class="modal glass-card">
+      <div class="modal-header">
+        <h2>
+          <span>⚠️</span>
+          Confirmation
+        </h2>
+        <button class="btn-close" id="btnCloseConfirmModal" aria-label="Fermer">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <p id="confirmMessage">Êtes-vous sûr de vouloir continuer ?</p>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btnCancelConfirm">
+          ❌ Annuler
+        </button>
+        <button class="btn-primary" id="btnConfirmConfirm">
+          ✅ Confirmer
+        </button>
       </div>
     </div>
   </div>
