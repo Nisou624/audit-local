@@ -1,84 +1,135 @@
-// FileIcons utility class avec logique de sécurité
+// Enhanced FileIcons utility class with Windows system icons
 class FileIcons {
-  static getIcon(item) {
+  static getWindowsIcon(item) {
     if (item.isDirectory) {
-      return '📁';
+      return this.createIconElement('folder');
     }
 
     const extension = item.extension.toLowerCase();
     
-    switch (extension) {
-      case 'txt':
-      case 'md':
-      case 'readme':
-        return '📄';
+    const iconMap = {
+      // Documents
+      'txt': 'text',
+      'rtf': 'text',
+      'md': 'text',
+      'doc': 'word',
+      'docx': 'word',
+      'xls': 'excel',
+      'xlsx': 'excel',
+      'csv': 'excel',
+      'ppt': 'powerpoint',
+      'pptx': 'powerpoint',
+      'pdf': 'pdf',
       
-      case 'doc':
-      case 'docx':
-        return '📝';
+      // Images
+      'jpg': 'image',
+      'jpeg': 'image',
+      'png': 'image',
+      'gif': 'image',
+      'bmp': 'image',
+      'svg': 'image',
+      'ico': 'image',
+      'tiff': 'image',
+      'webp': 'image',
       
-      case 'xls':
-      case 'xlsx':
-      case 'csv':
-        return '📊';
+      // Videos
+      'mp4': 'video',
+      'avi': 'video',
+      'mov': 'video',
+      'mkv': 'video',
+      'flv': 'video',
+      'wmv': 'video',
+      'webm': 'video',
       
-      case 'pdf':
-        return '📕';
+      // Audio
+      'mp3': 'audio',
+      'wav': 'audio',
+      'flac': 'audio',
+      'ogg': 'audio',
+      'wma': 'audio',
+      'aac': 'audio',
       
-      case 'jpg':
-      case 'jpeg':
-      case 'png':
-      case 'gif':
-      case 'bmp':
-      case 'svg':
-        return '🖼️';
+      // Archives
+      'zip': 'archive',
+      'rar': 'archive',
+      '7z': 'archive',
+      'tar': 'archive',
+      'gz': 'archive',
       
-      case 'mp4':
-      case 'avi':
-      case 'mov':
-      case 'mkv':
-        return '🎬';
+      // Code
+      'js': 'code',
+      'html': 'code',
+      'css': 'code',
+      'json': 'code',
+      'xml': 'code',
+      'php': 'code',
+      'py': 'code',
+      'java': 'code',
+      'cpp': 'code',
+      'c': 'code',
+      'h': 'code',
       
-      case 'mp3':
-      case 'wav':
-      case 'flac':
-        return '🎵';
-      
-      case 'zip':
-      case 'rar':
-      case '7z':
-      case 'tar':
-        return '📦';
-      
-      case 'js':
-      case 'html':
-      case 'css':
-      case 'json':
-      case 'xml':
-        return '💻';
-      
-      default:
-        return '📄';
-    }
+      // Executables
+      'exe': 'executable',
+      'msi': 'executable',
+      'bat': 'executable',
+      'cmd': 'executable',
+      'com': 'executable'
+    };
+
+    const iconType = iconMap[extension] || 'file';
+    return this.createIconElement(iconType);
+  }
+
+  static createIconElement(iconType) {
+    const iconClasses = {
+      'folder': 'icon-folder',
+      'word': 'icon-word',
+      'excel': 'icon-excel',
+      'powerpoint': 'icon-powerpoint',
+      'pdf': 'icon-pdf',
+      'image': 'icon-image',
+      'video': 'icon-video',
+      'audio': 'icon-audio',
+      'archive': 'icon-archive',
+      'code': 'icon-code',
+      'text': 'icon-text',
+      'executable': 'icon-executable',
+      'file': 'icon-file'
+    };
+
+    return `<span class="file-icon-windows ${iconClasses[iconType] || iconClasses.file}"></span>`;
+  }
+
+  static getIcon(item) {
+    return this.getWindowsIcon(item);
   }
 
   static canOpen(extension) {
-    const allowedExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv'];
+    const allowedExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'rtf', 'ppt', 'pptx'];
     return allowedExtensions.includes(extension.toLowerCase());
   }
 
-  static canDownload(extension) {
-    // PDF ne peut PAS être téléchargé (données sensibles)
-    const downloadableExtensions = ['doc', 'docx', 'xls', 'xlsx', 'csv'];
+  static canDownload(extension, isAdmin = false) {
+    if (isAdmin) {
+      // Admin can download everything except restricted system files
+      const restrictedExtensions = ['exe', 'bat', 'cmd', 'com', 'msi'];
+      return !restrictedExtensions.includes(extension.toLowerCase());
+    }
+    
+    // Regular users: PDF download restricted, others allowed
+    const downloadableExtensions = ['doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'rtf', 'ppt', 'pptx'];
     return downloadableExtensions.includes(extension.toLowerCase());
   }
 
   static canPreview(extension) {
-    const previewableExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'md'];
+    const previewableExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'md', 'rtf', 'json', 'xml', 'html', 'css', 'js'];
     return previewableExtensions.includes(extension.toLowerCase());
   }
 
-  static isPdfRestricted(extension) {
+  static isPdfRestricted(extension, isAdmin = false) {
+    // Admin users don't have PDF restrictions
+    if (isAdmin) return false;
     return extension.toLowerCase() === 'pdf';
   }
 }
@@ -146,6 +197,9 @@ class FileExplorerApp {
     document.getElementById('btnLogin').addEventListener('click', () => this.handleAdminLogin());
     document.getElementById('btnDisconnect').addEventListener('click', () => this.handleAdminLogout());
     
+    // Preview modal events
+    document.getElementById('btnClosePreviewModal').addEventListener('click', () => this.hideFilePreview());
+    
     // Navigation events - Normal mode
     document.getElementById('btnRefresh').addEventListener('click', () => this.refreshDirectory());
     document.getElementById('btnParent').addEventListener('click', () => this.goToParent());
@@ -178,6 +232,12 @@ class FileExplorerApp {
     document.getElementById('modalAdminLogin').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) {
         this.hideAdminLogin();
+      }
+    });
+
+    document.getElementById('filePreviewModal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        this.hideFilePreview();
       }
     });
 
@@ -230,10 +290,19 @@ class FileExplorerApp {
     for (let file of files) {
       try {
         const filePath = this.joinPaths(this.currentPath, file.name);
-        const reader = new FileReader();
         
+        const reader = new FileReader();
         reader.onload = async (e) => {
-          const content = e.target.result;
+          let content;
+          if (file.type.startsWith('text/') || file.name.match(/\.(txt|md|json|js|css|html|xml)$/i)) {
+            content = e.target.result;
+          } else {
+            // For binary files, convert ArrayBuffer to Buffer
+            const arrayBuffer = e.target.result;
+            const buffer = Buffer.from(arrayBuffer);
+            content = buffer;
+          }
+          
           const result = await window.electronAPI.createFile(filePath, content, this.isAuthenticated);
           
           if (result.success) {
@@ -243,7 +312,7 @@ class FileExplorerApp {
           }
         };
         
-        if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+        if (file.type.startsWith('text/') || file.name.match(/\.(txt|md|json|js|css|html|xml)$/i)) {
           reader.readAsText(file);
         } else {
           reader.readAsArrayBuffer(file);
@@ -269,6 +338,11 @@ class FileExplorerApp {
       if (e.ctrlKey && e.key === 'a' && !this.isAuthenticated) {
         e.preventDefault();
         this.showAdminLogin();
+      }
+
+      if (e.key === 'Escape') {
+        this.hideFilePreview();
+        this.hideAdminLogin();
       }
     });
   }
@@ -379,9 +453,9 @@ class FileExplorerApp {
     let fileActions = '';
     if (!item.isDirectory) {
       const canOpen = FileIcons.canOpen(extension);
-      const canDownload = FileIcons.canDownload(extension);
+      const canDownload = FileIcons.canDownload(extension, this.isAuthenticated);
       const canPreview = FileIcons.canPreview(extension);
-      const isPdfRestricted = FileIcons.isPdfRestricted(extension);
+      const isPdfRestricted = FileIcons.isPdfRestricted(extension, this.isAuthenticated);
 
       let actionButtons = [];
       
@@ -395,7 +469,7 @@ class FileExplorerApp {
       
       if (canDownload) {
         actionButtons.push(`<button class="action-btn download-btn" data-path="${this.escapeHtml(item.path)}" title="Télécharger">💾</button>`);
-      } else if (isPdfRestricted) {
+      } else if (isPdfRestricted && !this.isAuthenticated) {
         actionButtons.push(`<button class="action-btn download-btn disabled-btn" data-path="${this.escapeHtml(item.path)}" title="Téléchargement interdit - Données sensibles" disabled>💾</button>`);
       }
 
@@ -403,8 +477,8 @@ class FileExplorerApp {
         fileActions = `<div class="file-actions">${actionButtons.join('')}</div>`;
       }
 
-      // Ajouter un avertissement de sécurité pour les PDFs
-      if (isPdfRestricted) {
+      // Add security notice for PDFs (only for non-admin users)
+      if (isPdfRestricted && !this.isAuthenticated) {
         fileActions += `<div class="pdf-security-notice">🔒 Données sensibles</div>`;
       }
     }
@@ -496,7 +570,7 @@ class FileExplorerApp {
   async previewFile(filePath) {
     try {
       const extension = filePath.split('.').pop().toLowerCase();
-      const isPdfRestricted = FileIcons.isPdfRestricted(extension);
+      const isPdfRestricted = FileIcons.isPdfRestricted(extension, this.isAuthenticated);
 
       this.showNotification('📄 Chargement de la prévisualisation...', 'info');
       
@@ -513,28 +587,30 @@ class FileExplorerApp {
   }
 
   showFilePreviewModal(fileData, isRestricted = false) {
-    // Create preview modal if it doesn't exist
-    let modal = document.getElementById('filePreviewModal');
-    if (!modal) {
-      modal = this.createFilePreviewModal();
-      document.body.appendChild(modal);
-    }
-
+    const modal = document.getElementById('filePreviewModal');
     const modalTitle = modal.querySelector('.modal-title');
-    const modalContent = modal.querySelector('.preview-content');
+    const modalContent = modal.querySelector('#previewContent');
 
     modalTitle.textContent = `Prévisualisation - ${fileData.name}`;
 
     let contentHTML = '';
 
-    // Ajouter un avertissement de sécurité pour les PDFs
-    if (isRestricted) {
+    // Add security warning for PDFs (only for non-admin users)
+    if (isRestricted && !this.isAuthenticated) {
       contentHTML += `
         <div class="security-warning">
           <div class="warning-icon">🔒</div>
           <p><strong>Données Sensibles</strong></p>
           <p>Ce document contient des informations sensibles.</p>
           <p>Le téléchargement et l'impression sont désactivés.</p>
+        </div>
+      `;
+    } else if (this.isAuthenticated) {
+      contentHTML += `
+        <div class="admin-notice">
+          <div class="admin-icon">⚙️</div>
+          <p><strong>Mode Administrateur</strong></p>
+          <p>Accès complet autorisé</p>
         </div>
       `;
     }
@@ -572,27 +648,9 @@ class FileExplorerApp {
     modal.classList.add('active');
   }
 
-  createFilePreviewModal() {
-    const modalHTML = `
-      <div class="modal-overlay" id="filePreviewModal">
-        <div class="modal glass-card preview-modal">
-          <div class="modal-header">
-            <h2 class="modal-title">
-              <span>👁️</span>
-              Prévisualisation
-            </h2>
-            <button class="btn-close" onclick="this.closest('.modal-overlay').classList.remove('active')">✕</button>
-          </div>
-          <div class="modal-body">
-            <div class="preview-content"></div>
-          </div>
-        </div>
-      </div>
-    `;
-    
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = modalHTML;
-    return tempDiv.firstElementChild;
+  hideFilePreview() {
+    const modal = document.getElementById('filePreviewModal');
+    modal.classList.remove('active');
   }
 
   async openFile(filePath) {
@@ -613,9 +671,13 @@ class FileExplorerApp {
     try {
       const extension = filePath.split('.').pop().toLowerCase();
       
-      // Vérification supplémentaire côté frontend
-      if (FileIcons.isPdfRestricted(extension)) {
-        this.showNotification('🔒 Téléchargement interdit pour les documents PDF - Données sensibles', 'error');
+      // Check permissions based on user type
+      if (!FileIcons.canDownload(extension, this.isAuthenticated)) {
+        if (this.isAuthenticated) {
+          this.showNotification('🔒 Type de fichier système non téléchargeable', 'error');
+        } else {
+          this.showNotification('🔒 Téléchargement interdit pour les documents PDF - Données sensibles', 'error');
+        }
         return;
       }
 
@@ -752,7 +814,7 @@ class FileExplorerApp {
       return;
     }
 
-    const fileName = prompt('Nom du nouveau fichier:');
+    const fileName = prompt('Nom du nouveau fichier (avec extension):');
     if (fileName && fileName.trim()) {
       const filePath = this.joinPaths(this.currentPath, fileName.trim());
       

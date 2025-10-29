@@ -323,6 +323,8 @@ ipcMain.handle('read-file-contents', async (event, filePath) => {
       case '.js':
       case '.css':
       case '.html':
+      case '.xml':
+      case '.rtf':
         content = await fs.readFile(resolvedPath, 'utf8');
         mimeType = 'text/plain';
         break;
@@ -382,8 +384,8 @@ ipcMain.handle('read-file-contents', async (event, filePath) => {
   }
 });
 
-// Download file with PDF restrictions
-ipcMain.handle('download-file', async (event, filePath) => {
+// Download file with improved admin permissions
+ipcMain.handle('download-file', async (event, filePath, isAuthenticated) => {
   try {
     const resolvedPath = path.resolve(filePath);
     
@@ -397,21 +399,33 @@ ipcMain.handle('download-file', async (event, filePath) => {
 
     const extension = path.extname(resolvedPath).toLowerCase();
     
-    // SECURITY: Block PDF downloads (sensitive data)
-    if (extension === '.pdf') {
-      return {
-        success: false,
-        error: 'Téléchargement interdit pour les documents PDF - Données sensibles'
-      };
-    }
+    // SECURITY: Different rules for admin vs regular users
+    if (!isAuthenticated) {
+      // Regular users: Block PDF downloads (sensitive data)
+      if (extension === '.pdf') {
+        return {
+          success: false,
+          error: 'Téléchargement interdit pour les documents PDF - Données sensibles'
+        };
+      }
 
-    // Only allow specific file types for download
-    const allowedExtensions = ['.doc', '.docx', '.xls', '.xlsx', '.csv'];
-    if (!allowedExtensions.includes(extension)) {
-      return {
-        success: false,
-        error: 'Type de fichier non autorisé pour le téléchargement'
-      };
+      // Only allow specific file types for download for regular users
+      const allowedExtensions = ['.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt', '.rtf', '.ppt', '.pptx'];
+      if (!allowedExtensions.includes(extension)) {
+        return {
+          success: false,
+          error: 'Type de fichier non autorisé pour le téléchargement'
+        };
+      }
+    } else {
+      // Admin users: Block only dangerous system files
+      const restrictedExtensions = ['.exe', '.bat', '.cmd', '.com', '.msi'];
+      if (restrictedExtensions.includes(extension)) {
+        return {
+          success: false,
+          error: 'Type de fichier système non autorisé pour le téléchargement'
+        };
+      }
     }
 
     const fileName = path.basename(resolvedPath);
@@ -554,11 +568,12 @@ ipcMain.handle('stop-watching', async (event) => {
 // FILE OPERATIONS HANDLERS (with path restriction)
 // ============================================
 
-// Create a new file
+// Create a new file - FIXED
 ipcMain.handle('create-file', async (event, filePath, content = '', isAuthenticated = false) => {
   try {
     const config = await configManager.loadConfig();
     
+    // Only check admin requirement for non-authenticated users
     if (config.security.requireAdminForModifications && !isAuthenticated) {
       return { success: false, error: 'Admin authentication required' };
     }
@@ -573,12 +588,16 @@ ipcMain.handle('create-file', async (event, filePath, content = '', isAuthentica
       };
     }
 
-    // Handle different content types
+    // Handle different content types - FIXED
     let fileContent = content;
-    if (typeof content === 'string' && content.startsWith('data:')) {
+    if (Buffer.isBuffer(content)) {
+      fileContent = content;
+    } else if (typeof content === 'string' && content.startsWith('data:')) {
       // Handle data URLs (from drag and drop)
       const base64Data = content.split(',')[1];
       fileContent = Buffer.from(base64Data, 'base64');
+    } else if (typeof content === 'string') {
+      fileContent = content;
     }
 
     await fs.writeFile(resolvedPath, fileContent);
@@ -588,11 +607,12 @@ ipcMain.handle('create-file', async (event, filePath, content = '', isAuthentica
   }
 });
 
-// Create a new directory
+// Create a new directory - FIXED
 ipcMain.handle('create-directory', async (event, dirPath, isAuthenticated = false) => {
   try {
     const config = await configManager.loadConfig();
     
+    // Only check admin requirement for non-authenticated users
     if (config.security.requireAdminForModifications && !isAuthenticated) {
       return { success: false, error: 'Admin authentication required' };
     }
@@ -614,11 +634,12 @@ ipcMain.handle('create-directory', async (event, dirPath, isAuthenticated = fals
   }
 });
 
-// Delete an item (file or directory)
+// Delete an item (file or directory) - FIXED
 ipcMain.handle('delete-item', async (event, itemPath, isAuthenticated = false) => {
   try {
     const config = await configManager.loadConfig();
     
+    // Only check admin requirement for non-authenticated users
     if (config.security.requireAdminForModifications && !isAuthenticated) {
       return { success: false, error: 'Admin authentication required' };
     }
@@ -646,11 +667,12 @@ ipcMain.handle('delete-item', async (event, itemPath, isAuthenticated = false) =
   }
 });
 
-// Rename an item
+// Rename an item - FIXED
 ipcMain.handle('rename-item', async (event, oldPath, newPath, isAuthenticated = false) => {
   try {
     const config = await configManager.loadConfig();
     
+    // Only check admin requirement for non-authenticated users
     if (config.security.requireAdminForModifications && !isAuthenticated) {
       return { success: false, error: 'Admin authentication required' };
     }
@@ -693,11 +715,11 @@ ipcMain.handle('authenticate-admin', async (event, password) => {
 });
 
 // ============================================
-// FILE OPENING HANDLERS (with restrictions)
+// FILE OPENING HANDLERS (improved for admin)
 // ============================================
 
-// Open file with restrictions based on file type
-ipcMain.handle('open-file', async (event, filePath) => {
+// Open file with improved admin permissions
+ipcMain.handle('open-file', async (event, filePath, isAuthenticated) => {
   try {
     const resolvedPath = path.resolve(filePath);
     
@@ -712,20 +734,20 @@ ipcMain.handle('open-file', async (event, filePath) => {
     const extension = path.extname(resolvedPath).toLowerCase();
     
     // Check if file type is allowed to be opened
-    const allowedExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv'];
+    let allowedExtensions;
+    if (isAuthenticated) {
+      // Admin can open more file types
+      allowedExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt', '.rtf', '.ppt', '.pptx', '.html', '.xml', '.json'];
+    } else {
+      // Regular users have limited access
+      allowedExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt', '.rtf', '.ppt', '.pptx'];
+    }
     
     if (!allowedExtensions.includes(extension)) {
       return {
         success: false,
         error: 'File type not supported for opening'
       };
-    }
-
-    // Special handling for PDFs to prevent printing
-    if (extension === '.pdf') {
-      // Open in a restricted viewer (browser without print capabilities)
-      // This is a security measure for sensitive PDF documents
-      console.log('Opening PDF in restricted mode (view only)');
     }
 
     await shell.openPath(resolvedPath);

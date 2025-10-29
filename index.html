@@ -14,7 +14,15 @@
   <div class="container">
     
     <!-- ADMIN LOGIN BUTTON -->
-    <div class="admin-login-section glass-card" id="admin-nav-section">
+    <div class="admin-nav-section glass-card" id="admin-nav-section">
+      <div class="company-branding">
+        <img src="assets/company-logo.png" alt="Logo Entreprise" class="company-logo" id="companyLogo">
+        <div class="iso-certifications">
+          <img src="assets/iso-9001.png" alt="ISO 9001" class="iso-badge">
+          <img src="assets/iso-14001.png" alt="ISO 14001" class="iso-badge">
+          <img src="assets/iso-27001.png" alt="ISO 27001" class="iso-badge">
+        </div>
+      </div>
       <button class="btn-admin-login" id="btnAdminLogin">
         <span>🔐</span>
         <span>Connexion Admin</span>
@@ -75,6 +83,14 @@
     <!-- PANEL ADMIN -->
     <div class="admin-panel" id="adminPanel">
       <div class="admin-header glass-card">
+        <div class="admin-branding">
+          <img src="assets/company-logo.png" alt="Logo Entreprise" class="admin-company-logo">
+          <div class="admin-iso-certifications">
+            <img src="assets/iso-9001.png" alt="ISO 9001" class="iso-badge-small">
+            <img src="assets/iso-14001.png" alt="ISO 14001" class="iso-badge-small">
+            <img src="assets/iso-27001.png" alt="ISO 27001" class="iso-badge-small">
+          </div>
+        </div>
         <h2 class="admin-title">
           <span>⚙️</span>
           Panneau d'Administration
@@ -172,6 +188,22 @@
         <button class="btn-primary" id="btnLogin">
           🔓 Se connecter
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL FILE PREVIEW -->
+  <div class="modal-overlay" id="filePreviewModal">
+    <div class="modal glass-card preview-modal">
+      <div class="modal-header">
+        <h2 class="modal-title">
+          <span>👁️</span>
+          Prévisualisation
+        </h2>
+        <button class="btn-close" id="btnClosePreviewModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="preview-content" id="previewContent"></div>
       </div>
     </div>
   </div>

@@ -30,13 +30,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // File reading and downloading
   readFileContents: (filePath) => ipcRenderer.invoke('read-file-contents', filePath),
-  downloadFile: (filePath) => ipcRenderer.invoke('download-file', filePath),
+  downloadFile: (filePath, isAuthenticated) => ipcRenderer.invoke('download-file', filePath, isAuthenticated),
   
   // Authentication
   authenticateAdmin: (password) => ipcRenderer.invoke('authenticate-admin', password),
 
   // File operations (restricted)
-  openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
+  openFile: (filePath, isAuthenticated) => ipcRenderer.invoke('open-file', filePath, isAuthenticated),
   openFolderExternal: (folderPath) => ipcRenderer.invoke('open-folder-external', folderPath),
   verifyPath: (dirPath) => ipcRenderer.invoke('verify-path', dirPath),
 
