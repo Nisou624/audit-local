@@ -19,33 +19,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // File system operations
   readDirectory: (dirPath) => ipcRenderer.invoke('read-directory', dirPath),
-  startEnhancedWatching: (dirPath) => ipcRenderer.invoke('start-enhanced-watching', dirPath),
-  stopWatching: () => ipcRenderer.invoke('stop-watching'),
+  readFileContents: (filePath) => ipcRenderer.invoke('read-file-contents', filePath),
+  downloadFile: (filePath, isAuthenticated) => ipcRenderer.invoke('download-file', filePath, isAuthenticated),
   
-  // File operations
+  // File operations (admin)
   createFile: (filePath, content, isAuthenticated) => ipcRenderer.invoke('create-file', filePath, content, isAuthenticated),
   createDirectory: (dirPath, isAuthenticated) => ipcRenderer.invoke('create-directory', dirPath, isAuthenticated),
   deleteItem: (itemPath, isAuthenticated) => ipcRenderer.invoke('delete-item', itemPath, isAuthenticated),
   renameItem: (oldPath, newPath, isAuthenticated) => ipcRenderer.invoke('rename-item', oldPath, newPath, isAuthenticated),
-  
-  // File reading and downloading
-  readFileContents: (filePath) => ipcRenderer.invoke('read-file-contents', filePath),
-  downloadFile: (filePath, isAuthenticated) => ipcRenderer.invoke('download-file', filePath, isAuthenticated),
-  
+
+  // File watching
+  startEnhancedWatching: (dirPath) => ipcRenderer.invoke('start-enhanced-watching', dirPath),
+  stopWatching: () => ipcRenderer.invoke('stop-watching'),
+
   // Authentication
   authenticateAdmin: (password) => ipcRenderer.invoke('authenticate-admin', password),
 
-  // File operations (restricted)
+  // File operations
   openFile: (filePath, isAuthenticated) => ipcRenderer.invoke('open-file', filePath, isAuthenticated),
   openFolderExternal: (folderPath) => ipcRenderer.invoke('open-folder-external', folderPath),
   verifyPath: (dirPath) => ipcRenderer.invoke('verify-path', dirPath),
 
   // Event listeners
-  onFileSystemChange: (callback) => {
-    ipcRenderer.on('file-system-change', (event, data) => callback(data));
-  },
-  onConfigLoaded: (callback) => {
-    ipcRenderer.on('config-loaded', (event, config) => callback(config));
-  }
+  onFileSystemChange: (callback) => ipcRenderer.on('file-system-change', callback),
+  onConfigLoaded: (callback) => ipcRenderer.on('config-loaded', callback)
 });
 

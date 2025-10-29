@@ -100,7 +100,7 @@ body {
 }
 
 /* ================================================
-   CUSTOM TITLEBAR
+   CUSTOM TITLEBAR - FIX #1: Remove rounded corners
    ================================================ */
 
 .custom-titlebar {
@@ -111,7 +111,7 @@ body {
   height: 40px;
   z-index: 9999;
   padding: 0;
-  border-radius: 0;
+  border-radius: 0; /* Fix #1: No rounded corners */
   border: none;
   border-bottom: 2px solid var(--glass-border);
   -webkit-app-region: drag;
@@ -190,6 +190,18 @@ body {
   position: relative;
   z-index: 2;
 }
+
+.glass-card-titlebar {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px 0 var(--glass-shadow);
+  transition: var(--transition);
+  position: relative;
+  z-index: 2;
+}
+
 
 .glass-card:hover {
   background: rgba(0, 0, 0, 0.4);
@@ -449,6 +461,12 @@ body {
   opacity: 0.4;
   cursor: not-allowed;
   transform: none;
+}
+
+/* Fix #6: Hide external folder button by default */
+#btnOpenExternal,
+#btnOpenExternalAdmin {
+  display: none;
 }
 
 /* ================================================
@@ -734,19 +752,6 @@ body {
   border-color: var(--danger);
 }
 
-/* Boutons de sécurité pour PDFs */
-.pdf-security-notice {
-  background: rgba(248, 113, 113, 0.2);
-  border: 2px solid var(--danger);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-xs);
-  font-size: 0.8rem;
-  text-align: center;
-  margin-top: 0.3rem;
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
 .disabled-btn {
   opacity: 0.4;
   cursor: not-allowed !important;
@@ -810,6 +815,11 @@ body {
   display: flex;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
+}
+
+/* Fix #7: Hide nouveau fichier button */
+#btnNewFile {
+  display: none;
 }
 
 .btn-admin-action {
@@ -1075,6 +1085,7 @@ body {
   font-weight: bold;
 }
 
+/* Fix #5: PDF embed with print restrictions */
 .pdf-embed {
   width: 100%;
   height: 600px;
@@ -1083,45 +1094,20 @@ body {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
-.security-warning {
-  background: rgba(248, 113, 113, 0.2);
-  border: 2px solid var(--danger);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-md);
-  margin-bottom: var(--spacing-md);
-  text-align: center;
-  color: var(--text-primary);
-  font-weight: 600;
+/* Fix #8: Remove security warnings for end users */
+.security-warning,
+.pdf-security-notice {
+  display: none;
 }
 
 .admin-notice {
-  background: rgba(76, 175, 80, 0.2);
-  border: 2px solid var(--success);
-  border-radius: var(--radius-sm);
-  padding: var(--spacing-md);
-  margin-bottom: var(--spacing-md);
-  text-align: center;
-  color: var(--text-primary);
-  font-weight: 600;
+  display: none;
 }
 
 .warning-icon, .admin-icon {
   font-size: 2rem;
   margin-bottom: var(--spacing-sm);
   display: block;
-}
-
-.security-warning strong,
-.admin-notice strong {
-  font-size: 16px;
-  display: block;
-  margin-bottom: 8px;
-}
-
-.security-warning p,
-.admin-notice p {
-  margin: 5px 0;
-  font-size: 14px;
 }
 
 /* ================================================
@@ -1203,18 +1189,18 @@ body {
 }
 
 /* ================================================
-   NOTIFICATION AMÉLIORÉE
+   NOTIFICATION AMÉLIORÉE - FIX #2: Better positioned
    ================================================ */
 
 .notification {
   position: fixed;
-  top: 30px;
-  right: 30px;
+  top: 50px; /* Fix #2: Move below titlebar */
+  right: 0px;
   padding: 15px 20px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.9);
   backdrop-filter: blur(20px);
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid var(--glass-border);
   color: white;
   display: flex;
   align-items: center;
@@ -1222,8 +1208,8 @@ body {
   max-width: 400px;
   transform: translateX(100%);
   transition: transform 0.3s ease;
-  z-index: 2000;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  z-index: 10000; /* Above titlebar */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .notification.show {
@@ -1384,9 +1370,9 @@ body {
   }
 
   .notification {
-    top: 15px;
-    right: 15px;
-    max-width: calc(100vw - 30px);
+    top: 50px;
+    right: 10px;
+    max-width: calc(100vw - 20px);
   }
 }
 

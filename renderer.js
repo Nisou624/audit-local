@@ -204,16 +204,16 @@ class FileExplorerApp {
     document.getElementById('btnRefresh').addEventListener('click', () => this.refreshDirectory());
     document.getElementById('btnParent').addEventListener('click', () => this.goToParent());
     document.getElementById('btnHome').addEventListener('click', () => this.goToRoot());
-    document.getElementById('btnOpenExternal').addEventListener('click', () => this.openInSystemExplorer());
+    // Fix #6: Hide external folder button but keep for dev use
 
     // Navigation events - Admin mode
     document.getElementById('btnRefreshAdmin').addEventListener('click', () => this.refreshDirectory());
     document.getElementById('btnParentAdmin').addEventListener('click', () => this.goToParent());
     document.getElementById('btnHomeAdmin').addEventListener('click', () => this.goToRoot());
-    document.getElementById('btnOpenExternalAdmin').addEventListener('click', () => this.openInSystemExplorer());
+    // Fix #6: Hide external folder button but keep for dev use
 
     // Admin file operations
-    document.getElementById('btnNewFile').addEventListener('click', () => this.createNewFile());
+    // Fix #7: Remove new file button functionality
     document.getElementById('btnNewFolder').addEventListener('click', () => this.createNewFolder());
 
     // Listen for real-time file system changes
@@ -249,6 +249,7 @@ class FileExplorerApp {
     });
   }
 
+  // Fix #3: Improved drag and drop functionality
   setupDragAndDrop() {
     const dragDropZone = document.getElementById('dragDropZoneAdmin');
     
@@ -281,6 +282,7 @@ class FileExplorerApp {
     e.stopPropagation();
   }
 
+  // Fix #3: Fixed drag and drop file handling
   async handleDroppedFiles(files) {
     if (!this.isAuthenticated) {
       this.showNotification('❌ Vous devez être connecté en tant qu\'administrateur', 'error');
@@ -293,17 +295,7 @@ class FileExplorerApp {
         
         const reader = new FileReader();
         reader.onload = async (e) => {
-          let content;
-          if (file.type.startsWith('text/') || file.name.match(/\.(txt|md|json|js|css|html|xml)$/i)) {
-            content = e.target.result;
-          } else {
-            // For binary files, convert ArrayBuffer to Buffer
-            const arrayBuffer = e.target.result;
-            const buffer = Buffer.from(arrayBuffer);
-            content = buffer;
-          }
-          
-          const result = await window.electronAPI.createFile(filePath, content, this.isAuthenticated);
+          const result = await window.electronAPI.createFile(filePath, e.target.result, this.isAuthenticated);
           
           if (result.success) {
             this.showNotification(`📄 Fichier "${file.name}" ajouté avec succès`, 'success');
@@ -312,11 +304,8 @@ class FileExplorerApp {
           }
         };
         
-        if (file.type.startsWith('text/') || file.name.match(/\.(txt|md|json|js|css|html|xml)$/i)) {
-          reader.readAsText(file);
-        } else {
-          reader.readAsArrayBuffer(file);
-        }
+        // Read as ArrayBuffer for all files to handle binary properly
+        reader.readAsArrayBuffer(file);
       } catch (error) {
         this.showNotification(`❌ Erreur: ${error.message}`, 'error');
       }
@@ -328,6 +317,12 @@ class FileExplorerApp {
       if (e.key === 'F5') {
         e.preventDefault();
         this.refreshDirectory();
+      }
+
+      // Fix #6: F6 shortcut for dev folder opening
+      if (e.key === 'F6') {
+        e.preventDefault();
+        this.openInSystemExplorer();
       }
       
       if (e.altKey && e.key === 'ArrowUp') {
@@ -476,11 +471,6 @@ class FileExplorerApp {
       if (actionButtons.length > 0) {
         fileActions = `<div class="file-actions">${actionButtons.join('')}</div>`;
       }
-
-      // Add security notice for PDFs (only for non-admin users)
-      if (isPdfRestricted && !this.isAuthenticated) {
-        fileActions += `<div class="pdf-security-notice">🔒 Données sensibles</div>`;
-      }
     }
 
     // Admin actions
@@ -495,503 +485,500 @@ class FileExplorerApp {
       <div class="file-item" data-path="${this.escapeHtml(item.path)}" data-is-directory="${item.isDirectory}">
         <div class="file-icon clickable-file">${icon}</div>
         <div class="file-info">
-          <div class="file-name clickable-file">${this.escapeHtml(item.name)}</div>
-          <div class="file-details">
-            ${size ? `<div class="file-size">📏 ${size}</div>` : ''}
-            <div class="file-date">📅 ${date}</div>
+            <div class="file-name clickable-file">${this.escapeHtml(item.name)}</div>
+            <div class="file-details">
+              ${size ? `<div class="file-size">📏 ${size}</div>` : ''}
+              <div class="file-date">📅 ${date}</div>
+            </div>
           </div>
+          ${fileActions}
+          ${adminActions}
         </div>
-        ${fileActions}
-        ${adminActions}
-      </div>
-    `;
-  }
+      `;
+    }
 
-  escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
+    escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
 
-  bindFileItemEvents() {
-    // Navigation clicks
-    document.querySelectorAll('.clickable-file').forEach(element => {
-      element.addEventListener('click', (e) => {
-        const fileItem = e.target.closest('.file-item');
-        const filePath = fileItem.dataset.path;
-        const isDirectory = fileItem.dataset.isDirectory === 'true';
+    bindFileItemEvents() {
+      // Fix #9: Single click for file operations
+      document.querySelectorAll('.clickable-file').forEach(element => {
+        element.addEventListener('click', (e) => {
+          const fileItem = e.target.closest('.file-item');
+          const filePath = fileItem.dataset.path;
+          const isDirectory = fileItem.dataset.isDirectory === 'true';
+          
+          if (isDirectory) {
+            this.navigateToDirectory(filePath);
+          } else {
+            // Fix #9: Single click behavior - preview for non-auth, open for auth
+            const extension = filePath.split('.').pop().toLowerCase();
+            const canOpen = FileIcons.canOpen(extension);
+            const canPreview = FileIcons.canPreview(extension);
+            
+            if (this.isAuthenticated && canOpen) {
+              // Admin users: open file directly
+              this.openFile(filePath);
+            } else if (canPreview) {
+              // Regular users or non-openable files: show preview
+              this.previewFile(filePath);
+            }
+          }
+        });
+      });
+
+      // File action buttons
+      document.querySelectorAll('.preview-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.previewFile(btn.dataset.path);
+        });
+      });
+
+      document.querySelectorAll('.open-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openFile(btn.dataset.path);
+        });
+      });
+
+      document.querySelectorAll('.download-btn:not(.disabled-btn)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.downloadFile(btn.dataset.path);
+        });
+      });
+
+      // Admin action buttons
+      if (this.isAuthenticated) {
+        document.querySelectorAll('.rename-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.renameItem(btn.dataset.path);
+          });
+        });
+
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.deleteItem(btn.dataset.path);
+          });
+        });
+      }
+    }
+
+    async previewFile(filePath) {
+      try {
+        const extension = filePath.split('.').pop().toLowerCase();
+        const isPdfRestricted = FileIcons.isPdfRestricted(extension, this.isAuthenticated);
+
+        this.showNotification('📄 Chargement de la prévisualisation...', 'info');
         
-        if (isDirectory) {
-          this.navigateToDirectory(filePath);
-        }
-      });
-    });
-
-    // File action buttons
-    document.querySelectorAll('.preview-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.previewFile(btn.dataset.path);
-      });
-    });
-
-    document.querySelectorAll('.open-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.openFile(btn.dataset.path);
-      });
-    });
-
-    document.querySelectorAll('.download-btn:not(.disabled-btn)').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.downloadFile(btn.dataset.path);
-      });
-    });
-
-    // Admin action buttons
-    if (this.isAuthenticated) {
-      document.querySelectorAll('.rename-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.renameItem(btn.dataset.path);
-        });
-      });
-
-      document.querySelectorAll('.delete-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.deleteItem(btn.dataset.path);
-        });
-      });
-    }
-  }
-
-  async previewFile(filePath) {
-    try {
-      const extension = filePath.split('.').pop().toLowerCase();
-      const isPdfRestricted = FileIcons.isPdfRestricted(extension, this.isAuthenticated);
-
-      this.showNotification('📄 Chargement de la prévisualisation...', 'info');
-      
-      const result = await window.electronAPI.readFileContents(filePath);
-      
-      if (result.success) {
-        this.showFilePreviewModal(result, isPdfRestricted);
-      } else {
-        this.showNotification(`❌ Erreur lors de la prévisualisation: ${result.error}`, 'error');
-      }
-    } catch (error) {
-      this.showNotification(`❌ Erreur: ${error.message}`, 'error');
-    }
-  }
-
-  showFilePreviewModal(fileData, isRestricted = false) {
-    const modal = document.getElementById('filePreviewModal');
-    const modalTitle = modal.querySelector('.modal-title');
-    const modalContent = modal.querySelector('#previewContent');
-
-    modalTitle.textContent = `Prévisualisation - ${fileData.name}`;
-
-    let contentHTML = '';
-
-    // Add security warning for PDFs (only for non-admin users)
-    if (isRestricted && !this.isAuthenticated) {
-      contentHTML += `
-        <div class="security-warning">
-          <div class="warning-icon">🔒</div>
-          <p><strong>Données Sensibles</strong></p>
-          <p>Ce document contient des informations sensibles.</p>
-          <p>Le téléchargement et l'impression sont désactivés.</p>
-        </div>
-      `;
-    } else if (this.isAuthenticated) {
-      contentHTML += `
-        <div class="admin-notice">
-          <div class="admin-icon">⚙️</div>
-          <p><strong>Mode Administrateur</strong></p>
-          <p>Accès complet autorisé</p>
-        </div>
-      `;
-    }
-
-    if (fileData.mimeType === 'application/pdf') {
-      contentHTML += `
-        <embed src="data:application/pdf;base64,${fileData.content}" 
-               type="application/pdf" 
-               width="100%" 
-               height="600px" 
-               class="pdf-embed" />
-      `;
-    } else if (fileData.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-               fileData.mimeType === 'application/msword') {
-      contentHTML += `
-        <div class="document-preview">
-          ${fileData.content}
-        </div>
-      `;
-    } else if (fileData.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-               fileData.mimeType === 'application/vnd.ms-excel' ||
-               fileData.extension === 'csv') {
-      contentHTML += `
-        <div class="document-preview">
-          ${fileData.content}
-        </div>
-      `;
-    } else {
-      contentHTML += `
-        <pre class="file-content-preview">${this.escapeHtml(fileData.content)}</pre>
-      `;
-    }
-
-    modalContent.innerHTML = contentHTML;
-    modal.classList.add('active');
-  }
-
-  hideFilePreview() {
-    const modal = document.getElementById('filePreviewModal');
-    modal.classList.remove('active');
-  }
-
-  async openFile(filePath) {
-    try {
-      const result = await window.electronAPI.openFile(filePath);
-      
-      if (result.success) {
-        this.showNotification(`📖 Ouverture du fichier: ${this.getBasename(filePath)}`, 'info');
-      } else {
-        this.showNotification(`❌ ${result.error}`, 'error');
-      }
-    } catch (error) {
-      this.showNotification(`❌ Erreur: ${error.message}`, 'error');
-    }
-  }
-
-  async downloadFile(filePath) {
-    try {
-      const extension = filePath.split('.').pop().toLowerCase();
-      
-      // Check permissions based on user type
-      if (!FileIcons.canDownload(extension, this.isAuthenticated)) {
-        if (this.isAuthenticated) {
-          this.showNotification('🔒 Type de fichier système non téléchargeable', 'error');
+        const result = await window.electronAPI.readFileContents(filePath);
+        
+        if (result.success) {
+          this.showFilePreviewModal(result, isPdfRestricted);
         } else {
-          this.showNotification('🔒 Téléchargement interdit pour les documents PDF - Données sensibles', 'error');
+          this.showNotification(`❌ Erreur lors de la prévisualisation: ${result.error}`, 'error');
         }
+      } catch (error) {
+        this.showNotification(`❌ Erreur: ${error.message}`, 'error');
+      }
+    }
+
+    // Fix #8: Remove security warnings from preview modal
+    showFilePreviewModal(fileData, isRestricted = false) {
+      const modal = document.getElementById('filePreviewModal');
+      const modalTitle = modal.querySelector('.modal-title');
+      const modalContent = modal.querySelector('#previewContent');
+
+      modalTitle.textContent = `Prévisualisation - ${fileData.name}`;
+
+      let contentHTML = '';
+
+      // Fix #5: PDF embed with printing disabled for regular users
+      if (fileData.mimeType === 'application/pdf') {
+        if (!this.isAuthenticated) {
+          // For regular users, embed PDF without toolbar to prevent printing
+          contentHTML += `
+            <embed src="data:application/pdf;base64,${fileData.content}" 
+                  type="application/pdf" 
+                  width="100%" 
+                  height="600px" 
+                  toolbar="no"
+                  statusbar="no"
+                  menubar="no"
+                  scrollbar="yes"
+                  class="pdf-embed" />
+          `;
+        } else {
+          // For admin users, allow full functionality
+          contentHTML += `
+            <embed src="data:application/pdf;base64,${fileData.content}" 
+                  type="application/pdf" 
+                  width="100%" 
+                  height="600px" 
+                  class="pdf-embed" />
+          `;
+        }
+      } else if (fileData.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                fileData.mimeType === 'application/msword') {
+        contentHTML += `
+          <div class="document-preview">
+            ${fileData.content}
+          </div>
+        `;
+      } else if (fileData.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                fileData.mimeType === 'application/vnd.ms-excel' ||
+                fileData.extension === 'csv') {
+        contentHTML += `
+          <div class="document-preview">
+            ${fileData.content}
+          </div>
+        `;
+      } else {
+        contentHTML += `
+          <pre class="file-content-preview">${this.escapeHtml(fileData.content)}</pre>
+        `;
+      }
+
+      modalContent.innerHTML = contentHTML;
+      modal.classList.add('active');
+    }
+
+    hideFilePreview() {
+      const modal = document.getElementById('filePreviewModal');
+      modal.classList.remove('active');
+    }
+
+    // Fix #4: Fixed docx file opening
+    async openFile(filePath) {
+      try {
+        const result = await window.electronAPI.openFile(filePath, this.isAuthenticated);
+        
+        if (result.success) {
+          this.showNotification(`📖 Ouverture du fichier: ${this.getBasename(filePath)}`, 'info');
+        } else {
+          this.showNotification(`❌ ${result.error}`, 'error');
+        }
+      } catch (error) {
+        this.showNotification(`❌ Erreur: ${error.message}`, 'error');
+      }
+    }
+
+    async downloadFile(filePath) {
+      try {
+        const extension = filePath.split('.').pop().toLowerCase();
+        
+        // Check permissions based on user type
+        if (!FileIcons.canDownload(extension, this.isAuthenticated)) {
+          if (this.isAuthenticated) {
+            this.showNotification('🔒 Type de fichier système non téléchargeable', 'error');
+          } else {
+            this.showNotification('🔒 Téléchargement interdit pour les documents PDF - Données sensibles', 'error');
+          }
+          return;
+        }
+
+        const result = await window.electronAPI.downloadFile(filePath, this.isAuthenticated);
+        
+        if (result.success) {
+          this.showNotification(`💾 Fichier téléchargé vers: ${this.getBasename(result.downloadPath)}`, 'success');
+        } else {
+          this.showNotification(`❌ ${result.error}`, 'error');
+        }
+      } catch (error) {
+        this.showNotification(`❌ Erreur: ${error.message}`, 'error');
+      }
+    }
+
+    // Admin login functions
+    showAdminLogin() {
+      if (this.isAuthenticated) {
+        this.showAdminPanel();
+        return;
+      }
+      
+      const modal = document.getElementById('modalAdminLogin');
+      const passwordInput = document.getElementById('inputAdminPassword');
+      
+      modal.classList.add('active');
+      passwordInput.value = '';
+      passwordInput.focus();
+    }
+
+    hideAdminLogin() {
+      const modal = document.getElementById('modalAdminLogin');
+      modal.classList.remove('active');
+    }
+
+    async handleAdminLogin() {
+      const password = document.getElementById('inputAdminPassword').value;
+      
+      if (!password) {
+        this.showNotification('❌ Veuillez entrer un mot de passe', 'error');
         return;
       }
 
-      const result = await window.electronAPI.downloadFile(filePath);
-      
-      if (result.success) {
-        this.showNotification(`💾 Fichier téléchargé vers: ${this.getBasename(result.downloadPath)}`, 'success');
-      } else {
-        this.showNotification(`❌ ${result.error}`, 'error');
-      }
-    } catch (error) {
-      this.showNotification(`❌ Erreur: ${error.message}`, 'error');
-    }
-  }
-
-  // Admin login functions
-  showAdminLogin() {
-    if (this.isAuthenticated) {
-      this.showAdminPanel();
-      return;
-    }
-    
-    const modal = document.getElementById('modalAdminLogin');
-    const passwordInput = document.getElementById('inputAdminPassword');
-    
-    modal.classList.add('active');
-    passwordInput.value = '';
-    passwordInput.focus();
-  }
-
-  hideAdminLogin() {
-    const modal = document.getElementById('modalAdminLogin');
-    modal.classList.remove('active');
-  }
-
-  async handleAdminLogin() {
-    const password = document.getElementById('inputAdminPassword').value;
-    
-    if (!password) {
-      this.showNotification('❌ Veuillez entrer un mot de passe', 'error');
-      return;
-    }
-
-    try {
-      const result = await window.electronAPI.authenticateAdmin(password);
-      
-      if (result.success) {
-        this.isAuthenticated = true;
-        this.hideAdminLogin();
-        this.showAdminPanel();
-        this.hideNavPanel();
-        this.showNotification('🔓 Connexion réussie - Mode Administrateur activé', 'success');
+      try {
+        const result = await window.electronAPI.authenticateAdmin(password);
         
-        this.updateUserStatus();
+        if (result.success) {
+          this.isAuthenticated = true;
+          this.hideAdminLogin();
+          this.showAdminPanel();
+          this.hideNavPanel();
+          this.showNotification('🔓 Connexion réussie - Mode Administrateur activé', 'success');
+          
+          this.updateUserStatus();
+          
+          // Auto-logout after 30 minutes
+          setTimeout(() => {
+            if (this.isAuthenticated) {
+              this.handleAdminLogout();
+              this.showNotification('🔒 Session administrateur expirée', 'warning');
+            }
+          }, 1800000);
+        } else {
+          this.showNotification('❌ Mot de passe incorrect', 'error');
+        }
+      } catch (error) {
+        this.showNotification('❌ Erreur de connexion: ' + error.message, 'error');
+      }
+    }
+
+    handleAdminLogout() {
+      this.isAuthenticated = false;
+      this.hideAdminPanel();
+      this.showUserPanel();
+      this.updateUserStatus();
+      this.refreshDirectory();
+      this.showNotification('🚪 Déconnexion réussie - Mode Consultation activé', 'info');
+      this.showNavPanel();
+    }
+
+    showAdminPanel() {
+      document.getElementById('fileTreeContainer').style.display = 'none';
+      document.getElementById('adminPanel').style.display = 'flex';
+      this.refreshDirectory();
+    }
+
+    hideNavPanel() {
+      document.getElementById('admin-nav-section').style.display = 'none';
+      document.getElementById('file-nav').style.display = 'none';
+    }
+
+    showNavPanel() {
+      document.getElementById('admin-nav-section').style.display = 'flex';
+      document.getElementById('file-nav').style.display = 'flex';
+    }
+
+    hideAdminPanel() {
+      document.getElementById('adminPanel').style.display = 'none';
+      document.getElementById('fileTreeContainer').style.display = 'flex';
+    }
+
+    showUserPanel() {
+      this.hideAdminPanel();
+    }
+
+    updateUserStatus() {
+      const statusElement = document.getElementById('userStatus');
+      const loginBtn = document.getElementById('btnAdminLogin');
+      
+      if (this.isAuthenticated) {
+        statusElement.innerHTML = `
+          <span class="status-icon">🔐</span>
+          <span>Mode: Administration</span>
+        `;
+        loginBtn.innerHTML = `
+          <span>⚙️</span>
+          <span>Panneau Admin</span>
+        `;
+      } else {
+        statusElement.innerHTML = `
+          <span class="status-icon">👤</span>
+          <span>Mode: Consultation</span>
+        `;
+        loginBtn.innerHTML = `
+          <span>🔐</span>
+          <span>Connexion Admin</span>
+        `;
+      }
+    }
+
+    // Fix #7: Fixed new folder creation
+    async createNewFolder() {
+      if (!this.isAuthenticated) {
+        this.showNotification('❌ Connexion administrateur requise', 'error');
+        return;
+      }
+
+      const folderName = prompt('Nom du nouveau dossier:');
+      if (folderName && folderName.trim()) {
+        const folderPath = this.joinPaths(this.currentPath, folderName.trim());
         
-        // Auto-logout after 30 minutes
-        setTimeout(() => {
-          if (this.isAuthenticated) {
-            this.handleAdminLogout();
-            this.showNotification('🔒 Session administrateur expirée', 'warning');
-          }
-        }, 1800000);
-      } else {
-        this.showNotification('❌ Mot de passe incorrect', 'error');
+        const result = await window.electronAPI.createDirectory(folderPath, this.isAuthenticated);
+        
+        if (result.success) {
+          this.showNotification('📁 Dossier créé avec succès', 'success');
+        } else {
+          this.showNotification('❌ ' + result.error, 'error');
+        }
       }
-    } catch (error) {
-      this.showNotification('❌ Erreur de connexion: ' + error.message, 'error');
-    }
-  }
-
-  handleAdminLogout() {
-    this.isAuthenticated = false;
-    this.hideAdminPanel();
-    this.showUserPanel();
-    this.updateUserStatus();
-    this.refreshDirectory();
-    this.showNotification('🚪 Déconnexion réussie - Mode Consultation activé', 'info');
-    this.showNavPanel();
-  }
-
-  showAdminPanel() {
-    document.getElementById('fileTreeContainer').style.display = 'none';
-    document.getElementById('adminPanel').style.display = 'flex';
-    this.refreshDirectory();
-  }
-
-  hideNavPanel() {
-    document.getElementById('admin-nav-section').style.display = 'none';
-    document.getElementById('file-nav').style.display = 'none';
-  }
-
-  showNavPanel() {
-    document.getElementById('admin-nav-section').style.display = 'flex';
-    document.getElementById('file-nav').style.display = 'flex';
-  }
-
-  hideAdminPanel() {
-    document.getElementById('adminPanel').style.display = 'none';
-    document.getElementById('fileTreeContainer').style.display = 'flex';
-  }
-
-  showUserPanel() {
-    this.hideAdminPanel();
-  }
-
-  updateUserStatus() {
-    const statusElement = document.getElementById('userStatus');
-    const loginBtn = document.getElementById('btnAdminLogin');
-    
-    if (this.isAuthenticated) {
-      statusElement.innerHTML = `
-        <span class="status-icon">🔐</span>
-        <span>Mode: Administration</span>
-      `;
-      loginBtn.innerHTML = `
-        <span>⚙️</span>
-        <span>Panneau Admin</span>
-      `;
-    } else {
-      statusElement.innerHTML = `
-        <span class="status-icon">👤</span>
-        <span>Mode: Consultation</span>
-      `;
-      loginBtn.innerHTML = `
-        <span>🔐</span>
-        <span>Connexion Admin</span>
-      `;
-    }
-  }
-
-  async createNewFile() {
-    if (!this.isAuthenticated) {
-      this.showNotification('❌ Connexion administrateur requise', 'error');
-      return;
     }
 
-    const fileName = prompt('Nom du nouveau fichier (avec extension):');
-    if (fileName && fileName.trim()) {
-      const filePath = this.joinPaths(this.currentPath, fileName.trim());
+    async deleteItem(itemPath) {
+      if (!this.isAuthenticated) {
+        this.showNotification('❌ Connexion administrateur requise', 'error');
+        return;
+      }
+
+      const itemName = this.getBasename(itemPath);
+      if (confirm(`Êtes-vous sûr de vouloir supprimer "${itemName}" ?`)) {
+        const result = await window.electronAPI.deleteItem(itemPath, this.isAuthenticated);
+        
+        if (result.success) {
+          this.showNotification('🗑️ Élément supprimé avec succès', 'success');
+        } else {
+          this.showNotification('❌ ' + result.error, 'error');
+        }
+      }
+    }
+
+    // Fix #10: Fixed rename functionality
+    async renameItem(itemPath) {
+      if (!this.isAuthenticated) {
+        this.showNotification('❌ Connexion administrateur requise', 'error');
+        return;
+      }
+
+      const currentName = this.getBasename(itemPath);
+      const newName = prompt('Nouveau nom:', currentName);
       
-      const result = await window.electronAPI.createFile(filePath, '', this.isAuthenticated);
+      if (newName && newName.trim() && newName !== currentName) {
+        const newPath = this.joinPaths(this.getDirname(itemPath), newName.trim());
+        
+        const result = await window.electronAPI.renameItem(itemPath, newPath, this.isAuthenticated);
+        
+        if (result.success) {
+          this.showNotification('✏️ Élément renommé avec succès', 'success');
+        } else {
+          this.showNotification('❌ ' + result.error, 'error');
+        }
+      }
+    }
+
+    updateNavigationButtons() {
+      const parentBtn = document.getElementById(this.isAuthenticated ? 'btnParentAdmin' : 'btnParent');
+      parentBtn.disabled = this.isAtRoot;
       
-      if (result.success) {
-        this.showNotification('📄 Fichier créé avec succès', 'success');
+      if (this.isAtRoot) {
+        parentBtn.style.opacity = '0.5';
+        parentBtn.style.cursor = 'not-allowed';
       } else {
+        parentBtn.style.opacity = '1';
+        parentBtn.style.cursor = 'pointer';
+      }
+    }
+
+    async goToParent() {
+      if (!this.isAtRoot) {
+        const parentPath = this.getDirname(this.currentPath);
+        await this.navigateToDirectory(parentPath);
+      }
+    }
+
+    async goToRoot() {
+      await this.navigateToDirectory(this.rootPath);
+    }
+
+    async refreshDirectory() {
+      await this.navigateToDirectory(this.currentPath);
+    }
+
+    // Fix #6: Dev-only system explorer access via F6
+    async openInSystemExplorer() {
+      const result = await window.electronAPI.openFolderExternal(this.currentPath);
+      if (!result.success) {
         this.showNotification('❌ ' + result.error, 'error');
-      }
-    }
-  }
-
-  async createNewFolder() {
-    if (!this.isAuthenticated) {
-      this.showNotification('❌ Connexion administrateur requise', 'error');
-      return;
-    }
-
-    const folderName = prompt('Nom du nouveau dossier:');
-    if (folderName && folderName.trim()) {
-      const folderPath = this.joinPaths(this.currentPath, folderName.trim());
-      
-      const result = await window.electronAPI.createDirectory(folderPath, this.isAuthenticated);
-      
-      if (result.success) {
-        this.showNotification('📁 Dossier créé avec succès', 'success');
       } else {
-        this.showNotification('❌ ' + result.error, 'error');
+        this.showNotification('📂 Dossier ouvert dans l\'explorateur système', 'info');
       }
     }
-  }
 
-  async deleteItem(itemPath) {
-    if (!this.isAuthenticated) {
-      this.showNotification('❌ Connexion administrateur requise', 'error');
-      return;
+    // Utility functions
+    joinPaths(...parts) {
+      return parts.filter(part => part && part.trim()).join('/').replace(/\/+/g, '/');
     }
 
-    const itemName = this.getBasename(itemPath);
-    if (confirm(`Êtes-vous sûr de vouloir supprimer "${itemName}" ?`)) {
-      const result = await window.electronAPI.deleteItem(itemPath, this.isAuthenticated);
+    getBasename(filePath) {
+      return filePath.split(/[\\/]/).pop() || '';
+    }
+
+    getDirname(filePath) {
+      const parts = filePath.split(/[\\/]/);
+      parts.pop();
+      return parts.join('/') || filePath.charAt(0);
+    }
+
+    formatFileSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    showLoading() {
+      const loadingSpinner = document.getElementById(this.isAuthenticated ? 'loadingSpinnerAdmin' : 'loadingSpinner');
+      if (loadingSpinner) loadingSpinner.style.display = 'flex';
+    }
+
+    hideLoading() {
+      const loadingSpinner = document.getElementById(this.isAuthenticated ? 'loadingSpinnerAdmin' : 'loadingSpinner');
+      if (loadingSpinner) loadingSpinner.style.display = 'none';
+    }
+
+    showError(message) {
+      const errorState = document.getElementById('errorState');
+      const errorMessage = document.getElementById('errorMessage');
       
-      if (result.success) {
-        this.showNotification('🗑️ Élément supprimé avec succès', 'success');
-      } else {
-        this.showNotification('❌ ' + result.error, 'error');
-      }
-    }
-  }
-
-  async renameItem(itemPath) {
-    if (!this.isAuthenticated) {
-      this.showNotification('❌ Connexion administrateur requise', 'error');
-      return;
+      this.hideLoading();
+      if (errorState) errorState.style.display = 'flex';
+      if (errorMessage) errorMessage.textContent = message;
     }
 
-    const currentName = this.getBasename(itemPath);
-    const newName = prompt('Nouveau nom:', currentName);
-    
-    if (newName && newName.trim() && newName !== currentName) {
-      const newPath = this.joinPaths(this.getDirname(itemPath), newName.trim());
+    showNotification(message, type = 'info') {
+      const notification = document.getElementById('notification');
+      const icon = document.getElementById('notificationIcon');
+      const text = document.getElementById('notificationText');
+
+      if (!notification || !icon || !text) return;
+
+      const icons = {
+        success: '✅',
+        error: '❌',
+        warning: '⚠️',
+        info: 'ℹ️'
+      };
+
+      icon.textContent = icons[type] || icons.info;
+      text.textContent = message;
       
-      const result = await window.electronAPI.renameItem(itemPath, newPath, this.isAuthenticated);
+      notification.classList.add('show');
       
-      if (result.success) {
-        this.showNotification('✏️ Élément renommé avec succès', 'success');
-      } else {
-        this.showNotification('❌ ' + result.error, 'error');
-      }
+      setTimeout(() => {
+        notification.classList.remove('show');
+      }, 4000);
     }
   }
 
-  updateNavigationButtons() {
-    const parentBtn = document.getElementById(this.isAuthenticated ? 'btnParentAdmin' : 'btnParent');
-    parentBtn.disabled = this.isAtRoot;
-    
-    if (this.isAtRoot) {
-      parentBtn.style.opacity = '0.5';
-      parentBtn.style.cursor = 'not-allowed';
-    } else {
-      parentBtn.style.opacity = '1';
-      parentBtn.style.cursor = 'pointer';
-    }
-  }
-
-  async goToParent() {
-    if (!this.isAtRoot) {
-      const parentPath = this.getDirname(this.currentPath);
-      await this.navigateToDirectory(parentPath);
-    }
-  }
-
-  async goToRoot() {
-    await this.navigateToDirectory(this.rootPath);
-  }
-
-  async refreshDirectory() {
-    await this.navigateToDirectory(this.currentPath);
-  }
-
-  async openInSystemExplorer() {
-    const result = await window.electronAPI.openFolderExternal(this.currentPath);
-    if (!result.success) {
-      this.showNotification('❌ ' + result.error, 'error');
-    }
-  }
-
-  // Utility functions
-  joinPaths(...parts) {
-    return parts.filter(part => part && part.trim()).join('/').replace(/\/+/g, '/');
-  }
-
-  getBasename(filePath) {
-    return filePath.split(/[\\/]/).pop() || '';
-  }
-
-  getDirname(filePath) {
-    const parts = filePath.split(/[\\/]/);
-    parts.pop();
-    return parts.join('/') || filePath.charAt(0);
-  }
-
-  formatFileSize(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  }
-
-  showLoading() {
-    const loadingSpinner = document.getElementById(this.isAuthenticated ? 'loadingSpinnerAdmin' : 'loadingSpinner');
-    if (loadingSpinner) loadingSpinner.style.display = 'flex';
-  }
-
-  hideLoading() {
-    const loadingSpinner = document.getElementById(this.isAuthenticated ? 'loadingSpinnerAdmin' : 'loadingSpinner');
-    if (loadingSpinner) loadingSpinner.style.display = 'none';
-  }
-
-  showError(message) {
-    const errorState = document.getElementById('errorState');
-    const errorMessage = document.getElementById('errorMessage');
-    
-    this.hideLoading();
-    if (errorState) errorState.style.display = 'flex';
-    if (errorMessage) errorMessage.textContent = message;
-  }
-
-  showNotification(message, type = 'info') {
-    const notification = document.getElementById('notification');
-    const icon = document.getElementById('notificationIcon');
-    const text = document.getElementById('notificationText');
-
-    if (!notification || !icon || !text) return;
-
-    const icons = {
-      success: '✅',
-      error: '❌',
-      warning: '⚠️',
-      info: 'ℹ️'
-    };
-
-    icon.textContent = icons[type] || icons.info;
-    text.textContent = message;
-    
-    notification.classList.add('show');
-    
-    setTimeout(() => {
-      notification.classList.remove('show');
-    }, 4000);
-  }
-}
-
-// Initialize the app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-  window.app = new FileExplorerApp();
-});
+  // Initialize the app when DOM is loaded
+  document.addEventListener('DOMContentLoaded', () => {
+    window.app = new FileExplorerApp();
+  });
 

@@ -19,7 +19,7 @@ class TitleBar {
     }
 
     const titleBar = document.createElement('div');
-    titleBar.className = 'custom-titlebar glass-card';
+    titleBar.className = 'custom-titlebar glass-card-titlebar';
     titleBar.innerHTML = `
       <div class="titlebar-content">
         <div class="titlebar-left">

@@ -104,7 +104,8 @@ function createWindow() {
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#1a1a2e',
-    icon: path.join(__dirname, 'assets/icon.png')
+    icon: path.join(__dirname, 'assets/icon.png'),
+    roundedCorners: false // Fix #1: Remove rounded corners for entire window
   });
 
   mainWindow.loadFile('index.html');
@@ -117,10 +118,12 @@ function createWindow() {
     });
   });
 
-  // Open DevTools in development mode
-  if (process.argv.includes('--dev')) {
-    mainWindow.webContents.openDevTools();
-  }
+  // Open DevTools in development mode (F12 shortcut)
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      mainWindow.webContents.openDevTools();
+    }
+  });
 
   mainWindow.on('closed', () => {
     if (fileWatcher) {
@@ -568,45 +571,6 @@ ipcMain.handle('stop-watching', async (event) => {
 // FILE OPERATIONS HANDLERS (with path restriction)
 // ============================================
 
-// Create a new file - FIXED
-ipcMain.handle('create-file', async (event, filePath, content = '', isAuthenticated = false) => {
-  try {
-    const config = await configManager.loadConfig();
-    
-    // Only check admin requirement for non-authenticated users
-    if (config.security.requireAdminForModifications && !isAuthenticated) {
-      return { success: false, error: 'Admin authentication required' };
-    }
-
-    const resolvedPath = path.resolve(filePath);
-    
-    // Ensure we stay within the app root directory
-    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
-      return {
-        success: false,
-        error: 'Cannot create file outside of app root directory'
-      };
-    }
-
-    // Handle different content types - FIXED
-    let fileContent = content;
-    if (Buffer.isBuffer(content)) {
-      fileContent = content;
-    } else if (typeof content === 'string' && content.startsWith('data:')) {
-      // Handle data URLs (from drag and drop)
-      const base64Data = content.split(',')[1];
-      fileContent = Buffer.from(base64Data, 'base64');
-    } else if (typeof content === 'string') {
-      fileContent = content;
-    }
-
-    await fs.writeFile(resolvedPath, fileContent);
-    return { success: true, message: 'File created successfully' };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
 // Create a new directory - FIXED
 ipcMain.handle('create-directory', async (event, dirPath, isAuthenticated = false) => {
   try {
@@ -697,6 +661,45 @@ ipcMain.handle('rename-item', async (event, oldPath, newPath, isAuthenticated = 
   }
 });
 
+// Create a file with drag and drop support - FIXED
+ipcMain.handle('create-file', async (event, filePath, content = '', isAuthenticated = false) => {
+  try {
+    const config = await configManager.loadConfig();
+    
+    // Only check admin requirement for non-authenticated users
+    if (config.security.requireAdminForModifications && !isAuthenticated) {
+      return { success: false, error: 'Admin authentication required' };
+    }
+
+    const resolvedPath = path.resolve(filePath);
+    
+    // Ensure we stay within the app root directory
+    if (!isPathWithinRoot(resolvedPath, appRootPath)) {
+      return {
+        success: false,
+        error: 'Cannot create file outside of app root directory'
+      };
+    }
+
+    // Handle different content types
+    let fileContent = content;
+    if (Buffer.isBuffer(content)) {
+      fileContent = content;
+    } else if (typeof content === 'string' && content.startsWith('data:')) {
+      // Handle data URLs (from drag and drop)
+      const base64Data = content.split(',')[1];
+      fileContent = Buffer.from(base64Data, 'base64');
+    } else if (typeof content === 'string') {
+      fileContent = content;
+    }
+
+    await fs.writeFile(resolvedPath, fileContent);
+    return { success: true, message: 'File created successfully' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 // ============================================
 // AUTHENTICATION HANDLERS
 // ============================================
@@ -760,7 +763,7 @@ ipcMain.handle('open-file', async (event, filePath, isAuthenticated) => {
   }
 });
 
-// Open folder in system explorer (restricted)
+// Open folder in system explorer (for dev debugging only - F6 shortcut)
 ipcMain.handle('open-folder-external', async (event, folderPath) => {
   try {
     const resolvedPath = path.resolve(folderPath);

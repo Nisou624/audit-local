@@ -7,8 +7,6 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Background animé -->
-  <div class="background-gradient"></div>
 
   <!-- Container principal -->
   <div class="container">
@@ -45,7 +43,8 @@
         <button class="btn-nav" id="btnRefresh" title="Actualiser">
           <span>⟲</span>
         </button>
-        <button class="btn-nav" id="btnOpenExternal" title="Ouvrir dans l'explorateur système">
+        <!-- Fix #6: Hidden by CSS, accessible via F6 shortcut for dev -->
+        <button class="btn-nav" id="btnOpenExternal" title="Ouvrir dans l'explorateur système (F6 - Dev uniquement)">
           <span>📂</span>
         </button>
       </div>
@@ -96,10 +95,7 @@
           Panneau d'Administration
         </h2>
         <div class="admin-actions">
-          <button class="btn-admin-action" id="btnNewFile">
-            <span>📄</span>
-            <span>Nouveau Fichier</span>
-          </button>
+          <!-- Fix #7: Removed new file button -->
           <button class="btn-admin-action" id="btnNewFolder">
             <span>📁</span>
             <span>Nouveau Dossier</span>
@@ -123,7 +119,8 @@
           <button class="btn-nav" id="btnRefreshAdmin" title="Actualiser">
             <span>⟲</span>
           </button>
-          <button class="btn-nav" id="btnOpenExternalAdmin" title="Ouvrir dans l'explorateur système">
+          <!-- Fix #6: Hidden by CSS, accessible via F6 shortcut for dev -->
+          <button class="btn-nav" id="btnOpenExternalAdmin" title="Ouvrir dans l'explorateur système (F6 - Dev uniquement)">
             <span>📂</span>
           </button>
         </div>
