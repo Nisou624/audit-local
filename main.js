@@ -43,47 +43,157 @@ function isPathWithinRoot(targetPath, rootPath) {
   return normalizedTarget.startsWith(normalizedRoot);
 }
 
-// Process Office documents
+// FIXED: Better DOCX processing with fallback and error handling
 async function processOfficeDocument(filePath, extension) {
   try {
     switch (extension) {
       case '.docx':
       case '.doc':
-        const result = await mammoth.convertToHtml({ path: filePath });
-        return {
-          content: result.value,
-          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        };
+        try {
+          // First, check if file exists and is readable
+          const stats = await fs.stat(filePath);
+          if (stats.size === 0) {
+            throw new Error('Document file is empty');
+          }
+
+          // Try to read the file first to ensure it's not corrupted
+          const fileBuffer = await fs.readFile(filePath);
+          if (!fileBuffer || fileBuffer.length === 0) {
+            throw new Error('Cannot read document file - file may be corrupted');
+          }
+
+          // Enhanced mammoth processing with better error handling
+          const result = await mammoth.convertToHtml({ 
+            buffer: fileBuffer,
+            options: {
+              includeDefaultStyleMap: true,
+              includeEmbeddedStyleMap: true
+            }
+          });
+
+          if (result.messages && result.messages.length > 0) {
+            console.warn('Document conversion warnings:', result.messages);
+          }
+
+          if (!result.value || result.value.trim() === '') {
+            // Fallback: show document metadata if content extraction fails
+            return {
+              content: `
+                <div style="padding: 20px; font-family: Arial, sans-serif;">
+                  <h3>Document Information</h3>
+                  <p><strong>File:</strong> ${path.basename(filePath)}</p>
+                  <p><strong>Size:</strong> ${(stats.size / 1024).toFixed(2)} KB</p>
+                  <p><strong>Type:</strong> ${extension.toUpperCase()} Document</p>
+                  <p><strong>Status:</strong> Document content could not be extracted for preview</p>
+                  <p><em>Note: The document can still be opened with its default application.</em></p>
+                </div>
+              `,
+              mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            };
+          }
+
+          return {
+            content: result.value,
+            mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          };
+        } catch (docError) {
+          console.error('DOCX processing error:', docError);
+          
+          // Enhanced fallback with file info
+          const stats = await fs.stat(filePath);
+          return {
+            content: `
+              <div style="padding: 20px; font-family: Arial, sans-serif; border: 1px solid #ccc; background-color: #f9f9f9;">
+                <h3 style="color: #d32f2f;">Document Preview Not Available</h3>
+                <div style="margin: 15px 0;">
+                  <p><strong>File:</strong> ${path.basename(filePath)}</p>
+                  <p><strong>Size:</strong> ${(stats.size / 1024).toFixed(2)} KB</p>
+                  <p><strong>Type:</strong> ${extension.toUpperCase()} Document</p>
+                  <p><strong>Last Modified:</strong> ${stats.mtime.toLocaleString()}</p>
+                </div>
+                <div style="background-color: #fff3cd; padding: 10px; border-radius: 4px; border-left: 4px solid #ffc107;">
+                  <p><strong>Preview Error:</strong> ${docError.message}</p>
+                  <p>This document may be corrupted, password-protected, or in an unsupported format.</p>
+                  <p><em>Try opening the file with its default application for full content.</em></p>
+                </div>
+              </div>
+            `,
+            mimeType: 'text/html'
+          };
+        }
 
       case '.xlsx':
       case '.xls':
-        const workbook = XLSX.readFile(filePath);
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const htmlString = XLSX.utils.sheet_to_html(worksheet);
-        return {
-          content: htmlString,
-          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        };
+        try {
+          const workbook = XLSX.readFile(filePath);
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const htmlString = XLSX.utils.sheet_to_html(worksheet, {
+            id: "excel-table",
+            editable: false
+          });
+          return {
+            content: htmlString,
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          };
+        } catch (xlsError) {
+          const stats = await fs.stat(filePath);
+          return {
+            content: `
+              <div style="padding: 20px; font-family: Arial, sans-serif; border: 1px solid #ccc;">
+                <h3 style="color: #d32f2f;">Spreadsheet Preview Not Available</h3>
+                <p><strong>File:</strong> ${path.basename(filePath)}</p>
+                <p><strong>Error:</strong> ${xlsError.message}</p>
+                <p><em>Try opening the file with Excel or a compatible spreadsheet application.</em></p>
+              </div>
+            `,
+            mimeType: 'text/html'
+          };
+        }
 
       case '.csv':
-        const csvData = await fs.readFile(filePath, 'utf8');
-        const rows = csvData.split('\n').map(row => row.split(','));
-        let tableHtml = '<table border="1" style="border-collapse: collapse; width: 100%;">';
-        rows.forEach((row, index) => {
-          const tag = index === 0 ? 'th' : 'td';
-          tableHtml += '<tr>' + row.map(cell => `<${tag} style="padding: 8px; border: 1px solid #ddd;">${cell.trim()}</${tag}>`).join('') + '</tr>';
-        });
-        tableHtml += '</table>';
-        return {
-          content: tableHtml,
-          mimeType: 'text/csv'
-        };
+        try {
+          const csvData = await fs.readFile(filePath, 'utf8');
+          const rows = csvData.split('\n').map(row => 
+            row.split(',').map(cell => cell.trim().replace(/^"|"$/g, ''))
+          ).filter(row => row.some(cell => cell.length > 0));
+          
+          if (rows.length === 0) {
+            throw new Error('CSV file appears to be empty');
+          }
+
+          let tableHtml = '<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">';
+          rows.forEach((row, index) => {
+            const tag = index === 0 ? 'th' : 'td';
+            const bgColor = index === 0 ? '#f0f0f0' : 'white';
+            tableHtml += '<tr>' + row.map(cell => 
+              `<${tag} style="padding: 8px; border: 1px solid #ddd; background-color: ${bgColor};">${cell}</${tag}>`
+            ).join('') + '</tr>';
+          });
+          tableHtml += '</table>';
+          
+          return {
+            content: tableHtml,
+            mimeType: 'text/csv'
+          };
+        } catch (csvError) {
+          return {
+            content: `
+              <div style="padding: 20px; font-family: Arial, sans-serif;">
+                <h3 style="color: #d32f2f;">CSV Preview Error</h3>
+                <p><strong>Error:</strong> ${csvError.message}</p>
+                <p><em>The CSV file may be corrupted or use an unsupported format.</em></p>
+              </div>
+            `,
+            mimeType: 'text/html'
+          };
+        }
 
       default:
         throw new Error('Unsupported document format');
     }
   } catch (error) {
+    console.error('Document processing error:', error);
     throw new Error(`Failed to process document: ${error.message}`);
   }
 }
@@ -105,7 +215,7 @@ function createWindow() {
     titleBarStyle: 'hidden',
     backgroundColor: '#1a1a2e',
     icon: path.join(__dirname, 'assets/icon.png'),
-    roundedCorners: false // Fix #1: Remove rounded corners for entire window
+    roundedCorners: false
   });
 
   mainWindow.loadFile('index.html');
@@ -289,7 +399,7 @@ ipcMain.handle('read-directory', async (event, dirPath) => {
   }
 });
 
-// Read file contents for preview with Office document support
+// FIXED: Read file contents for preview with better DOCX handling
 ipcMain.handle('read-file-contents', async (event, filePath) => {
   try {
     const resolvedPath = path.resolve(filePath);
@@ -333,17 +443,6 @@ ipcMain.handle('read-file-contents', async (event, filePath) => {
         break;
 
       case '.csv':
-        try {
-          const processedDoc = await processOfficeDocument(resolvedPath, extension);
-          content = processedDoc.content;
-          mimeType = processedDoc.mimeType;
-        } catch (err) {
-          // Fallback to plain text
-          content = await fs.readFile(resolvedPath, 'utf8');
-          mimeType = 'text/plain';
-        }
-        break;
-
       case '.docx':
       case '.doc':
       case '.xlsx':
@@ -461,7 +560,7 @@ ipcMain.handle('download-file', async (event, filePath, isAuthenticated) => {
   }
 });
 
-// Enhanced file watching with immediate updates
+// FIXED: Enhanced file watching with better timing and immediate folder updates
 ipcMain.handle('start-enhanced-watching', async (event, dirPath) => {
   try {
     if (fileWatcher) {
@@ -484,21 +583,22 @@ ipcMain.handle('start-enhanced-watching', async (event, dirPath) => {
       ignoreInitial: true,
       depth: 0,
       awaitWriteFinish: {
-        stabilityThreshold: 100,
-        pollInterval: 50
+        stabilityThreshold: 50, // Reduced for faster detection
+        pollInterval: 25 // Faster polling
       },
       atomic: true,
       usePolling: false,
-      interval: 500,
-      binaryInterval: 1000
+      interval: 100, // Faster interval
+      binaryInterval: 300
     });
 
-    // Immediate response events
+    // FIXED: Immediate response events with better error handling
     fileWatcher
       .on('add', async (filePath) => {
+        console.log('File added:', filePath);
         const result = await generateFileInfo(filePath);
-        if (result) {
-          mainWindow?.webContents.send('file-system-change', {
+        if (result && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('file-system-change', {
             action: 'add',
             item: result,
             timestamp: Date.now()
@@ -506,9 +606,10 @@ ipcMain.handle('start-enhanced-watching', async (event, dirPath) => {
         }
       })
       .on('addDir', async (dirPath) => {
+        console.log('Directory added:', dirPath);
         const result = await generateFileInfo(dirPath);
-        if (result) {
-          mainWindow?.webContents.send('file-system-change', {
+        if (result && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('file-system-change', {
             action: 'add',
             item: result,
             timestamp: Date.now()
@@ -516,25 +617,32 @@ ipcMain.handle('start-enhanced-watching', async (event, dirPath) => {
         }
       })
       .on('unlink', (filePath) => {
-        mainWindow?.webContents.send('file-system-change', {
-          action: 'remove',
-          path: filePath,
-          name: path.basename(filePath),
-          timestamp: Date.now()
-        });
+        console.log('File removed:', filePath);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('file-system-change', {
+            action: 'remove',
+            path: filePath,
+            name: path.basename(filePath),
+            timestamp: Date.now()
+          });
+        }
       })
       .on('unlinkDir', (dirPath) => {
-        mainWindow?.webContents.send('file-system-change', {
-          action: 'remove',
-          path: dirPath,
-          name: path.basename(dirPath),
-          timestamp: Date.now()
-        });
+        console.log('Directory removed:', dirPath);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('file-system-change', {
+            action: 'remove',
+            path: dirPath,
+            name: path.basename(dirPath),
+            timestamp: Date.now()
+          });
+        }
       })
       .on('change', async (filePath) => {
+        console.log('File changed:', filePath);
         const result = await generateFileInfo(filePath);
-        if (result) {
-          mainWindow?.webContents.send('file-system-change', {
+        if (result && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('file-system-change', {
             action: 'change',
             item: result,
             timestamp: Date.now()
@@ -542,11 +650,15 @@ ipcMain.handle('start-enhanced-watching', async (event, dirPath) => {
         }
       })
       .on('error', (error) => {
-        console.error('Erreur watcher:', error);
+        console.error('File watcher error:', error);
+      })
+      .on('ready', () => {
+        console.log('File watcher is ready and watching for changes');
       });
 
     return { success: true };
   } catch (error) {
+    console.error('Start watching error:', error);
     return { success: false, error: error.message };
   }
 });
@@ -571,7 +683,7 @@ ipcMain.handle('stop-watching', async (event) => {
 // FILE OPERATIONS HANDLERS (with path restriction)
 // ============================================
 
-// Create a new directory - FIXED
+// FIXED: Create a new directory with immediate notification
 ipcMain.handle('create-directory', async (event, dirPath, isAuthenticated = false) => {
   try {
     const config = await configManager.loadConfig();
@@ -591,14 +703,39 @@ ipcMain.handle('create-directory', async (event, dirPath, isAuthenticated = fals
       };
     }
 
+    // Check if directory already exists
+    try {
+      const existing = await fs.stat(resolvedPath);
+      if (existing.isDirectory()) {
+        return { success: false, error: 'Directory already exists' };
+      }
+    } catch (error) {
+      // Directory doesn't exist, which is what we want
+    }
+
     await fs.mkdir(resolvedPath, { recursive: true });
+    
+    // FIXED: Immediately notify the renderer of the new directory
+    // This provides instant feedback even if the file watcher is slow
+    const newDirInfo = await generateFileInfo(resolvedPath);
+    if (newDirInfo && mainWindow && !mainWindow.isDestroyed()) {
+      // Send immediate update
+      setTimeout(() => {
+        mainWindow.webContents.send('file-system-change', {
+          action: 'add',
+          item: newDirInfo,
+          timestamp: Date.now()
+        });
+      }, 100); // Small delay to ensure directory is fully created
+    }
+    
     return { success: true, message: 'Directory created successfully' };
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
-// Delete an item (file or directory) - FIXED
+// FIXED: Delete an item with immediate notification
 ipcMain.handle('delete-item', async (event, itemPath, isAuthenticated = false) => {
   try {
     const config = await configManager.loadConfig();
@@ -619,10 +756,24 @@ ipcMain.handle('delete-item', async (event, itemPath, isAuthenticated = false) =
     }
 
     const stats = await fs.stat(resolvedPath);
+    const itemName = path.basename(resolvedPath);
+    
     if (stats.isDirectory()) {
       await fs.rmdir(resolvedPath, { recursive: true });
     } else {
       await fs.unlink(resolvedPath);
+    }
+    
+    // FIXED: Immediate notification for deletion
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      setTimeout(() => {
+        mainWindow.webContents.send('file-system-change', {
+          action: 'remove',
+          path: resolvedPath,
+          name: itemName,
+          timestamp: Date.now()
+        });
+      }, 50);
     }
     
     return { success: true, message: 'Item deleted successfully' };
@@ -631,7 +782,7 @@ ipcMain.handle('delete-item', async (event, itemPath, isAuthenticated = false) =
   }
 });
 
-// Rename an item - FIXED
+// FIXED: Rename an item with immediate notification
 ipcMain.handle('rename-item', async (event, oldPath, newPath, isAuthenticated = false) => {
   try {
     const config = await configManager.loadConfig();
@@ -655,13 +806,37 @@ ipcMain.handle('rename-item', async (event, oldPath, newPath, isAuthenticated = 
     }
 
     await fs.rename(resolvedOldPath, resolvedNewPath);
+    
+    // FIXED: Immediate notification for rename (remove old, add new)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      setTimeout(async () => {
+        // Remove old
+        mainWindow.webContents.send('file-system-change', {
+          action: 'remove',
+          path: resolvedOldPath,
+          name: path.basename(resolvedOldPath),
+          timestamp: Date.now()
+        });
+        
+        // Add new
+        const newItemInfo = await generateFileInfo(resolvedNewPath);
+        if (newItemInfo) {
+          mainWindow.webContents.send('file-system-change', {
+            action: 'add',
+            item: newItemInfo,
+            timestamp: Date.now() + 1
+          });
+        }
+      }, 100);
+    }
+    
     return { success: true, message: 'Item renamed successfully' };
   } catch (error) {
     return { success: false, error: error.message };
   }
 });
 
-// Create a file with drag and drop support - FIXED
+// Create a file with drag and drop support
 ipcMain.handle('create-file', async (event, filePath, content = '', isAuthenticated = false) => {
   try {
     const config = await configManager.loadConfig();
@@ -694,6 +869,19 @@ ipcMain.handle('create-file', async (event, filePath, content = '', isAuthentica
     }
 
     await fs.writeFile(resolvedPath, fileContent);
+    
+    // FIXED: Immediate notification for new file
+    const newFileInfo = await generateFileInfo(resolvedPath);
+    if (newFileInfo && mainWindow && !mainWindow.isDestroyed()) {
+      setTimeout(() => {
+        mainWindow.webContents.send('file-system-change', {
+          action: 'add',
+          item: newFileInfo,
+          timestamp: Date.now()
+        });
+      }, 100);
+    }
+    
     return { success: true, message: 'File created successfully' };
   } catch (error) {
     return { success: false, error: error.message };
